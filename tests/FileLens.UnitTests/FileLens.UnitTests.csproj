@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FileLens.UnitTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FileLens.Domain\FileLens.Domain.csproj" />
+    <ProjectReference Include="..\..\src\FileLens.Application\FileLens.Application.csproj" />
+    <ProjectReference Include="..\..\src\FileLens.Infrastructure\FileLens.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
