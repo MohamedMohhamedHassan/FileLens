@@ -89,6 +89,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IIndexingJobEngine>(sp => sp.GetRequiredService<IndexingJobEngine>());
         services.AddSingleton<DocumentExtractionEngine>();
         services.AddSingleton<IDocumentExtractionEngine>(sp => sp.GetRequiredService<DocumentExtractionEngine>());
+        services.AddSingleton<IOcrJobEngine, OcrJobEngine>();
         services.AddSingleton<ISearchService, SearchService>();
 
         // Infrastructure

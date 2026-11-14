@@ -1,3 +1,7 @@
+using System.Threading;
+using System.Threading.Tasks;
+using FileLens.Domain.Models;
+
 namespace FileLens.Domain.Interfaces;
 
 /// <summary>
@@ -5,5 +9,10 @@ namespace FileLens.Domain.Interfaces;
 /// </summary>
 public interface IOcrEngine
 {
+    string EngineName { get; }
+    string ModelVersion { get; }
+
+    Task<OcrResult> ExtractTextAsync(string filePath, OcrOptions options, CancellationToken cancellationToken = default);
+    Task<OcrResult> ExtractTextFromBytesAsync(byte[] imageBytes, OcrOptions options, CancellationToken cancellationToken = default);
 }
 

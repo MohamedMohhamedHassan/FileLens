@@ -4,6 +4,7 @@ using FileLens.Infrastructure.Database;
 using FileLens.Infrastructure.FileSystem;
 using FileLens.Infrastructure.Text;
 using FileLens.Infrastructure.Extraction;
+using FileLens.Infrastructure.Ocr;
 
 namespace FileLens.Infrastructure;
 
@@ -39,6 +40,11 @@ public static class InfrastructureServiceRegistration
 
         // Registry
         services.AddSingleton<IDocumentExtractionRegistry, DocumentExtractionRegistry>();
+
+        // Phase 3: OCR Engine & Service
+        services.AddSingleton<OcrWorkerClient>();
+        services.AddSingleton<IOcrEngine, FallbackOcrEngine>();
+        services.AddSingleton<IOcrService, LocalOcrService>();
 
         return services;
     }

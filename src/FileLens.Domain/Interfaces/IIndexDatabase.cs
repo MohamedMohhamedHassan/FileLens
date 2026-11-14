@@ -121,5 +121,29 @@ public interface IIndexDatabase
     /// Retrieves files that need document text extraction (e.g. newly discovered or modified since last extraction).
     /// </summary>
     Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingExtractionAsync(SearchRootId? rootId = null, int limit = 500, CancellationToken cancellationToken = default);
+
+    // ==========================================
+    // Phase 3: Optical Character Recognition (OCR)
+    // ==========================================
+
+    /// <summary>
+    /// Inserts or updates an OCR result record and syncs recognized text with the full-text search index.
+    /// </summary>
+    Task UpsertOcrResultAsync(OcrRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves OCR records associated with a specific file.
+    /// </summary>
+    Task<IReadOnlyList<OcrRecord>> GetOcrResultsByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves system-wide OCR metrics.
+    /// </summary>
+    Task<OcrStatistics> GetOcrStatisticsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves image files or scanned PDFs awaiting OCR processing.
+    /// </summary>
+    Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingOcrAsync(int limit = 500, CancellationToken cancellationToken = default);
 }
 

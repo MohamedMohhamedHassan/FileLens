@@ -25,16 +25,21 @@ public sealed class SearchResultViewModel
     public string? SheetName => _model.SheetName;
     public string? CellAddress => _model.CellAddress;
     public int? SlideNumber => _model.SlideNumber;
+    public bool IsOcrMatch => _model.IsOcrMatch;
+    public double? OcrConfidence => _model.OcrConfidence;
+    public string? OcrLanguage => _model.OcrLanguage;
 
     public string SizeDisplay => FormatBytes(_model.SizeBytes);
     public string ModifiedDisplay => _model.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     public string ScoreDisplay => $"{Math.Min(100, Math.Max(1, (int)(_model.Score * 10)))}%";
+    public string OcrConfidenceDisplay => _model.OcrConfidence.HasValue ? $"OCR: {(int)(_model.OcrConfidence.Value * 100)}%" : (IsOcrMatch ? "OCR Match" : string.Empty);
+    public string OcrLanguageBadge => !string.IsNullOrEmpty(_model.OcrLanguage) ? _model.OcrLanguage.ToUpperInvariant() : string.Empty;
 
     public string LocationBadge => !string.IsNullOrEmpty(_model.LocationReference)
         ? _model.LocationReference
         : (_model.PageNumber.HasValue ? $"Page {_model.PageNumber}" :
            (!string.IsNullOrEmpty(_model.SheetName) ? $"{_model.SheetName} ({_model.CellAddress})" :
-            (_model.SlideNumber.HasValue ? $"Slide {_model.SlideNumber}" : "Document")));
+            (_model.SlideNumber.HasValue ? $"Slide {_model.SlideNumber}" : (IsOcrMatch ? "OCR Image" : "Document"))));
 
     public string TypeBadge => _model.Extension.TrimStart('.').ToUpperInvariant();
 

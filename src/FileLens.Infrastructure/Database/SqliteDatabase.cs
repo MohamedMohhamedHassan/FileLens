@@ -91,8 +91,24 @@ public sealed class SqliteDatabase : IIndexDatabase
             }
         }
 
+        if (currentVersion < Migration003_OcrTextSearch.Version)
+        {
+            _logger.LogInformation("Applying Migration {Version}: {Description}", Migration003_OcrTextSearch.Version, Migration003_OcrTextSearch.Description);
+            await Migration003_OcrTextSearch.ApplyAsync(connection, transaction, cancellationToken);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = "INSERT INTO SchemaMigrations (Version, Description, AppliedAtUtc) VALUES ($v, $desc, $applied);";
+                cmd.Parameters.AddWithValue("$v", Migration003_OcrTextSearch.Version);
+                cmd.Parameters.AddWithValue("$desc", Migration003_OcrTextSearch.Description);
+                cmd.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("o"));
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
         await transaction.CommitAsync(cancellationToken);
-        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Math.Max(currentVersion, Migration002_FullTextSearch.Version));
+        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Math.Max(currentVersion, Migration003_OcrTextSearch.Version));
     }
 
     public async Task<IReadOnlyList<SearchRoot>> GetAllRootsAsync(CancellationToken cancellationToken = default)
@@ -953,22 +969,34 @@ public sealed class SqliteDatabase : IIndexDatabase
                     }
                 }
 
+                string ext = reader.GetString(4);
+                string? locRef = reader.IsDBNull(9) ? null : reader.GetString(9);
+                bool isOcr = (!string.IsNullOrEmpty(locRef) && locRef.Contains("OCR", StringComparison.OrdinalIgnoreCase))
+                    || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".tiff", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".bmp", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase)
+                    || ext.Equals(".gif", StringComparison.OrdinalIgnoreCase);
+
                 results.Add(new SearchResult
                 {
                     FileId = Guid.Parse(reader.GetString(0)),
                     RootId = new SearchRootId(Guid.Parse(reader.GetString(1))),
                     FullPath = reader.GetString(2),
                     FileName = reader.GetString(3),
-                    Extension = reader.GetString(4),
+                    Extension = ext,
                     SizeBytes = reader.GetInt64(5),
                     ModifiedAtUtc = DateTime.Parse(reader.GetString(6), null, DateTimeStyles.RoundtripKind),
                     Snippet = reader.GetString(7),
                     Score = reader.GetDouble(8),
-                    LocationReference = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    LocationReference = locRef,
                     PageNumber = reader.IsDBNull(10) ? null : reader.GetInt32(10),
                     SheetName = reader.IsDBNull(11) ? null : reader.GetString(11),
                     CellAddress = reader.IsDBNull(12) ? null : reader.GetString(12),
                     SlideNumber = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                    IsOcrMatch = isOcr,
                     DocumentMetadata = metadata
                 });
             }
@@ -1049,6 +1077,203 @@ public sealed class SqliteDatabase : IIndexDatabase
             files.Add(ReadIndexedFile(reader));
         }
 
+        return files;
+    }
+
+    // ==========================================
+    // Phase 3: OCR Storage and Retrieval
+    // ==========================================
+
+    public async Task UpsertOcrResultAsync(OcrRecord record, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction();
+
+        // 1. Insert or replace in OcrRecords
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = @"
+                INSERT INTO OcrRecords (
+                    Id, FileId, EngineName, ModelName, ModelVersion, Language,
+                    PageNumber, Confidence, RawText, NormalizedText, RegionsJson,
+                    ProcessingTimeMs, ExtractedAtUtc, ErrorMessage
+                ) VALUES (
+                    $id, $fileId, $engine, $model, $ver, $lang,
+                    $page, $conf, $raw, $norm, $regions,
+                    $timeMs, $extractedAt, $err
+                )
+                ON CONFLICT(Id) DO UPDATE SET
+                    EngineName = excluded.EngineName,
+                    ModelName = excluded.ModelName,
+                    ModelVersion = excluded.ModelVersion,
+                    Language = excluded.Language,
+                    PageNumber = excluded.PageNumber,
+                    Confidence = excluded.Confidence,
+                    RawText = excluded.RawText,
+                    NormalizedText = excluded.NormalizedText,
+                    RegionsJson = excluded.RegionsJson,
+                    ProcessingTimeMs = excluded.ProcessingTimeMs,
+                    ExtractedAtUtc = excluded.ExtractedAtUtc,
+                    ErrorMessage = excluded.ErrorMessage;";
+
+            cmd.Parameters.AddWithValue("$id", record.Id.ToString());
+            cmd.Parameters.AddWithValue("$fileId", record.FileId.ToString());
+            cmd.Parameters.AddWithValue("$engine", record.EngineName);
+            cmd.Parameters.AddWithValue("$model", record.ModelName);
+            cmd.Parameters.AddWithValue("$ver", record.ModelVersion);
+            cmd.Parameters.AddWithValue("$lang", record.Language);
+            cmd.Parameters.AddWithValue("$page", (object?)record.PageNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$conf", record.Confidence);
+            cmd.Parameters.AddWithValue("$raw", record.RawText);
+            cmd.Parameters.AddWithValue("$norm", record.NormalizedText);
+            cmd.Parameters.AddWithValue("$regions", (object?)record.RegionsJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$timeMs", record.ProcessingTimeMs);
+            cmd.Parameters.AddWithValue("$extractedAt", record.ExtractedAtUtc.ToString("o"));
+            cmd.Parameters.AddWithValue("$err", (object?)record.ErrorMessage ?? DBNull.Value);
+
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 2. Also register into DocumentChunks so FTS5 immediately indexes it
+        string chunkLoc = record.PageNumber.HasValue ? $"Page {record.PageNumber.Value} (OCR)" : "Image (OCR)";
+        Guid chunkId = Guid.NewGuid();
+
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = @"
+                INSERT INTO DocumentChunks (
+                    Id, FileId, ChunkIndex, LocationType, LocationReference,
+                    PageNumber, SheetName, CellAddress, SlideNumber,
+                    RawText, NormalizedText
+                ) VALUES (
+                    $id, $fileId, $chunkIdx, 'Ocr', $locRef,
+                    $page, NULL, NULL, NULL,
+                    $raw, $norm
+                );";
+
+            cmd.Parameters.AddWithValue("$id", chunkId.ToString());
+            cmd.Parameters.AddWithValue("$fileId", record.FileId.ToString());
+            cmd.Parameters.AddWithValue("$chunkIdx", record.PageNumber ?? 0);
+            cmd.Parameters.AddWithValue("$locRef", chunkLoc);
+            cmd.Parameters.AddWithValue("$page", (object?)record.PageNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$raw", record.RawText);
+            cmd.Parameters.AddWithValue("$norm", record.NormalizedText);
+
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 3. Insert into DocumentChunkFts
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = @"
+                INSERT INTO DocumentChunkFts (ChunkId, FileId, LocationReference, NormalizedText, RawText)
+                VALUES ($chunkId, $fileId, $locRef, $norm, $raw);";
+
+            cmd.Parameters.AddWithValue("$chunkId", chunkId.ToString());
+            cmd.Parameters.AddWithValue("$fileId", record.FileId.ToString());
+            cmd.Parameters.AddWithValue("$locRef", chunkLoc);
+            cmd.Parameters.AddWithValue("$norm", record.NormalizedText);
+            cmd.Parameters.AddWithValue("$raw", record.RawText);
+
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<OcrRecord>> GetOcrResultsByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT Id, FileId, EngineName, ModelName, ModelVersion, Language,
+                   PageNumber, Confidence, RawText, NormalizedText, RegionsJson,
+                   ProcessingTimeMs, ExtractedAtUtc, ErrorMessage
+            FROM OcrRecords
+            WHERE FileId = $fileId
+            ORDER BY PageNumber ASC, ExtractedAtUtc ASC;";
+        cmd.Parameters.AddWithValue("$fileId", fileId.ToString());
+
+        var list = new List<OcrRecord>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new OcrRecord
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                FileId = Guid.Parse(reader.GetString(1)),
+                EngineName = reader.GetString(2),
+                ModelName = reader.GetString(3),
+                ModelVersion = reader.GetString(4),
+                Language = reader.GetString(5),
+                PageNumber = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                Confidence = reader.GetDouble(7),
+                RawText = reader.GetString(8),
+                NormalizedText = reader.GetString(9),
+                RegionsJson = reader.IsDBNull(10) ? null : reader.GetString(10),
+                ProcessingTimeMs = reader.GetInt32(11),
+                ExtractedAtUtc = DateTime.Parse(reader.GetString(12), null, DateTimeStyles.RoundtripKind),
+                ErrorMessage = reader.IsDBNull(13) ? null : reader.GetString(13)
+            });
+        }
+        return list;
+    }
+
+    public async Task<OcrStatistics> GetOcrStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT
+                (SELECT COUNT(*) FROM IndexedFiles f WHERE LOWER(f.Extension) IN ('.jpg', '.jpeg', '.png', '.tiff', '.bmp', '.webp', '.gif')) AS TotalQueued,
+                (SELECT COUNT(*) FROM OcrRecords WHERE ErrorMessage IS NULL) AS SuccessfullyProcessed,
+                (SELECT COUNT(*) FROM OcrRecords WHERE ErrorMessage IS NOT NULL) AS Failed,
+                (SELECT COALESCE(AVG(Confidence), 0.0) FROM OcrRecords WHERE ErrorMessage IS NULL) AS AverageConfidence,
+                (SELECT COALESCE(SUM(LENGTH(RawText)), 0) FROM OcrRecords) AS TotalCharacters;";
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new OcrStatistics
+            {
+                TotalQueued = reader.GetInt32(0),
+                SuccessfullyProcessed = reader.GetInt32(1),
+                Failed = reader.GetInt32(2),
+                AverageConfidence = reader.GetDouble(3),
+                TotalOcrCharacters = reader.GetInt64(4)
+            };
+        }
+        return new OcrStatistics();
+    }
+
+    public async Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingOcrAsync(int limit = 500, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 2000));
+        cmd.CommandText = @"
+            SELECT f.Id, f.RootId, f.FullPath, f.NormalizedPath, f.RelativePath, f.FileName,
+                   f.Extension, f.SizeBytes, f.CreatedAtUtc, f.ModifiedAtUtc, f.Attributes,
+                   f.LastIndexedUtc, f.Status
+            FROM IndexedFiles f
+            LEFT JOIN OcrRecords o ON o.FileId = f.Id
+            WHERE f.Status = 1
+              AND LOWER(f.Extension) IN ('.jpg', '.jpeg', '.png', '.tiff', '.bmp', '.webp', '.gif')
+              AND (o.FileId IS NULL OR f.ModifiedAtUtc > o.ExtractedAtUtc)
+            ORDER BY f.LastIndexedUtc ASC
+            LIMIT $limit;";
+
+        var files = new List<IndexedFile>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            files.Add(ReadIndexedFile(reader));
+        }
         return files;
     }
 }

@@ -134,9 +134,16 @@ public sealed partial class TextNormalizer : ITextNormalizer
 
                     if (!string.IsNullOrWhiteSpace(normWord))
                     {
-                        // Escape any internal quotes or special characters if needed
-                        normWord = normWord.Replace("\"", string.Empty);
-                        tokens.Add(hasWildcard ? $"{normWord}*" : normWord);
+                        // Escape/strip internal quotes and FTS5 special punctuation syntax characters
+                        normWord = normWord.Replace("\"", string.Empty)
+                                           .Replace("#", string.Empty)
+                                           .Replace("^", string.Empty)
+                                           .Replace(":", string.Empty);
+
+                        if (!string.IsNullOrWhiteSpace(normWord))
+                        {
+                            tokens.Add(hasWildcard ? $"{normWord}*" : normWord);
+                        }
                     }
                 }
             }

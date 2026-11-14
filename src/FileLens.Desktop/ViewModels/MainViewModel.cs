@@ -50,6 +50,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _extractionStatusText = "Idle";
     private double _extractionProgressPercent;
 
+    // Phase 3 - OCR Controls
+    private readonly IOcrJobEngine? _ocrJobEngine;
+    private string _ocrStatusText = "OCR: Ready";
+
     // Phase 2 - Search & Preview
     private string _searchText = string.Empty;
     private string _selectedExtensionFilter = "All Formats";
@@ -75,7 +79,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         "PowerPoint Slides (*.pptx)",
         "Plain Text & Data (*.txt, *.csv)",
         "Source Code (*.cs, *.py, *.js...)",
-        "Structured Data (*.json, *.xml)"
+        "Structured Data (*.json, *.xml)",
+        "Images & OCR (*.jpg, *.png, *.pdf)"
     };
 
     public IReadOnlyList<string> DateFilters { get; } = new[]
@@ -233,6 +238,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { _extractionProgressPercent = value; OnPropertyChanged(); }
     }
 
+    public string OcrStatusText
+    {
+        get => _ocrStatusText;
+        set { _ocrStatusText = value; OnPropertyChanged(); }
+    }
+
     // Properties - Search & Preview
     public string SearchText
     {
@@ -317,6 +328,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Commands - Extraction & Search
     public ICommand StartExtractionCommand { get; }
     public ICommand CancelExtractionCommand { get; }
+    public ICommand StartOcrCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand ClearSearchCommand { get; }
     public ICommand OpenSelectedFileCommand { get; }
@@ -326,7 +338,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RootManagementService rootService,
         IIndexingJobEngine jobEngine,
         IIndexDatabase database)
-        : this(rootService, jobEngine, database, null!, null!)
+        : this(rootService, jobEngine, database, null!, null!, null)
     {
     }
 
@@ -336,12 +348,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IIndexDatabase database,
         IDocumentExtractionEngine? extractionEngine,
         ISearchService? searchService)
+        : this(rootService, jobEngine, database, extractionEngine, searchService, null)
+    {
+    }
+
+    public MainViewModel(
+        RootManagementService rootService,
+        IIndexingJobEngine jobEngine,
+        IIndexDatabase database,
+        IDocumentExtractionEngine? extractionEngine,
+        ISearchService? searchService,
+        IOcrJobEngine? ocrJobEngine)
     {
         _rootService = rootService;
         _jobEngine = jobEngine;
         _database = database;
         _extractionEngine = extractionEngine!;
         _searchService = searchService!;
+        _ocrJobEngine = ocrJobEngine;
         _dispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
 
         _jobEngine.ProgressChanged += OnProgressChanged;
@@ -367,6 +391,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         StartExtractionCommand = new RelayCommand(async () => await ExecuteStartExtractionAsync(), () => !IsExtracting && _extractionEngine != null);
         CancelExtractionCommand = new RelayCommand(() => _extractionEngine?.Cancel(), () => IsExtracting && _extractionEngine != null);
+        StartOcrCommand = new RelayCommand(async () => await ExecuteStartOcrAsync(), () => _ocrJobEngine != null && !_ocrJobEngine.IsRunning);
         SearchCommand = new RelayCommand(async () => await ExecuteSearchAsync(), () => _searchService != null);
         ClearSearchCommand = new RelayCommand(ExecuteClearSearch);
 
@@ -482,6 +507,27 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsExtracting = false;
             ExtractionStatusText = "Idle";
             await RefreshStatisticsAsync();
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    private async Task ExecuteStartOcrAsync()
+    {
+        if (_ocrJobEngine == null) return;
+        OcrStatusText = "OCR: Running...";
+        CommandManager.InvalidateRequerySuggested();
+
+        try
+        {
+            await _ocrJobEngine.RunOcrPipelineAsync();
+            OcrStatusText = $"OCR: Completed ({_ocrJobEngine.ProcessedCount} processed, {_ocrJobEngine.FailedCount} failed)";
+        }
+        catch (Exception ex)
+        {
+            OcrStatusText = $"OCR Error: {ex.Message}";
+        }
+        finally
+        {
             CommandManager.InvalidateRequerySuggested();
         }
     }
@@ -629,6 +675,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             "Plain Text & Data (*.txt, *.csv)" => new[] { ".txt", ".csv", ".tsv", ".log", ".ini" },
             "Source Code (*.cs, *.py, *.js...)" => new[] { ".cs", ".py", ".js", ".ts", ".jsx", ".tsx", ".cpp", ".c", ".h", ".java", ".go", ".rs", ".sql", ".sh", ".ps1", ".md", ".yaml", ".yml" },
             "Structured Data (*.json, *.xml)" => new[] { ".json", ".jsonl", ".xml", ".xaml", ".svg" },
+            "Images & OCR (*.jpg, *.png, *.pdf)" => new[] { ".jpg", ".jpeg", ".png", ".tiff", ".bmp", ".webp", ".gif", ".pdf" },
             _ => null
         };
     }

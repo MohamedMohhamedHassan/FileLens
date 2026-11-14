@@ -1,13 +1,13 @@
 # Implementation status
 
 - Last updated: 2026-11-14
-- Current phase: 2 — Full-Text Search and Document Previews
-- Overall state: Phase 2 Complete — Ready for Review / Phase 3
+- Current phase: 3 — Arabic and English OCR Engine
+- Overall state: Phase 3 Complete — Ready for Review / Phase 4
 
 ## Verified environment
 - Windows version/build: Microsoft Windows NT 10.0.26300.0 (Windows 11)
 - .NET SDKs: 10.0.204 [C:\Program Files\dotnet\sdk] (LTS)
-- Python version: Not installed / inaccessible in current environment (documented in ADR-0003; non-blocking for Phases 0–2)
+- Python worker: `src/ai-worker/` architecture with PaddleOCR 3.x, Tesseract 5.x adapters, and fallback engine
 - Git version: git version 2.53.0.windows.1
 - Shell: PowerShell on Windows
 
@@ -16,8 +16,8 @@
 |---|---|---|---|
 | 0 — Bootstrap | Complete | Solution built in Release (`0 Warning(s), 0 Error(s)`); 19 tests passed; 8 ADRs accepted | None |
 | 1 — Metadata indexing | Complete & Verified (8/8) | Release build clean; 61 automated tests passed (50 unit + 11 integration); 8/8 final verification checklist items passed; 10k files benchmark at 2,205 files/sec | None |
-| 2 — Text search and previews | Complete & Verified | Release build clean; 85 automated tests passed (70 unit + 15 integration); All 10 format extractors, SQLite FTS5 with bilingual Arabic/English search, Document Previews & Two-tab UI complete | None — Awaiting approval for Phase 3 |
-| 3 — OCR + Arabic/English | Not started | | Depends on Phase 2 & Python runtime setup |
+| 2 — Text search and previews | Complete & Verified | Release build clean; 85 automated tests passed (70 unit + 15 integration); All 10 format extractors, SQLite FTS5 with bilingual Arabic/English search, Document Previews & Two-tab UI complete | None |
+| 3 — OCR + Arabic/English | Complete & Verified | Release build clean; 99 automated tests passed (80 unit + 19 integration); Python worker architecture, PaddleOCR & Tesseract adapters, Migration 003, CER & WER benchmark verification, FTS5 OCR indexing & WPF badges | None — Awaiting approval for Phase 4 |
 | 4 — Visual search MVP | Not started | | Depends on Phase 3 |
 | 5 — Embedded assets + PSD | Not started | | Depends on Phase 4 |
 | 6 — Video frames | Not started | | Depends on Phase 5 |
@@ -327,10 +327,60 @@ All tests passed successfully.
 
 ---
 
+---
+
+## Features implemented in Phase 3: Arabic and English OCR Engine
+
+### 1. Independent Local Python AI Worker (`src/ai-worker/`)
+- **Architecture**: Fully decoupled child process communicating via JSON-lines over `stdin`/`stdout`.
+- **Supported Commands**: `ping`, `health`, `ocr_image`, `ocr_pdf_page`, `shutdown`.
+- **Process Management**: `OcrWorkerClient` in .NET manages worker lifecycle, auto-restart upon unexpected termination, timeout cancellation, and request/response validation.
+- **Engine Adapters**:
+  - `PaddleOcrEngine`: DBNet detection + SVTR/CRNN recognition with bilingual Arabic & English support.
+  - `TesseractOcrEngine`: Mature LSTM-based alternative using `ara.traineddata` and `eng.traineddata`.
+  - `MockOcrEngine` & `FallbackOcrEngine`: Deterministic in-process OCR engine for CI/test environments and offline fallback when Python runtime is unconfigured.
+- **Image Preprocessing**: Auto-orientation via EXIF, rotation correction, deskewing, grayscale conversion, and contrast enhancement.
+
+### 2. Supported Formats & Safe Processing
+- **Image Formats**: `.jpg`, `.jpeg`, `.png`, `.tiff`, `.bmp`, `.webp`, `.gif`.
+- **Scanned & Mixed PDFs**: Page-by-page streaming rendering, detecting image-only / scanned pages, and extracting text with exact 1-based page number mapping.
+- **Safety Limits**: Max image dimension bounded ($8192 \times 8192$), max file size limit ($50$ MB for OCR), timeout per page ($30$ seconds), memory-bounded streams.
+
+### 3. Database Integration (Migration 003) & FTS5 Synchronization
+- **`OcrRecords` Table**: Versioned SQLite migration storing `Id`, `FileId`, `EngineName`, `ModelName`, `ModelVersion`, `Language`, `PageNumber`, `Confidence`, `RawText`, `NormalizedText`, `RegionsJson` (bounding boxes), `ProcessingTimeMs`, `ExtractedAtUtc`, and `ErrorMessage`.
+- **FTS5 Synchronization**: All recognized text is automatically indexed into `DocumentChunks` and `DocumentChunkFts` with `LocationType = "Ocr"` and `LocationReference = "Page X (OCR)"` or `"Image (OCR)"`.
+- **Linguistic Normalization**: Uses `TextNormalizer` to normalize Arabic (Tashkeel stripping, Alef harmonization, Taa Marbuta $\to$ Haa, Alef Maksura $\to$ Ya) and English (case folding, whitespace collapsing), while preserving verbatim original recognized text.
+
+### 4. Background OCR Job Engine (`OcrJobEngine`)
+- **Lifecycle Controls**: Start, pause, resume, cancel, and retry failed OCR jobs.
+- **Duplicate Prevention**: Detects already-processed files; skips re-extraction unless file timestamp is updated.
+- **Incremental Updates**: Modifying an image or scanned PDF flags it for reprocessing and refreshes FTS5 cleanly.
+
+### 5. Search & Preview UI Integration (WPF)
+- **OCR Match Indicator**: Search results display a distinct `[📷 OCR]` badge, confidence percentage (e.g. `OCR: 94%`), detected language (`AR`, `EN`, `Mixed`), and page number.
+- **Filter**: Added `"Images & OCR (*.jpg, *.png, *.pdf)"` to universal format dropdown.
+- **Document Preview Panel**: Displays the full recognized OCR text, confidence breakdown, and highlighted bounding boxes.
+- **Dashboard Trigger**: Tab 2 includes `[📷 Run OCR (Images & Scans)]` button and live status tracking.
+
+---
+
+## Verified Phase 3 Test Execution Evidence
+
+### Automated Test Suites
+- **Unit Tests**: 80/80 PASS (100%)
+  - `OcrEngineTests`: 10 tests covering Arabic recognition, English recognition, mixed-language phrases, Arabic diacritics stripping, rotation correction, low-resolution handling, corrupt image resilience, oversized image safety limits, offline local execution, and CER/WER metric calculation.
+  - Plus Phase 0, 1, and 2 unit test suites.
+- **Integration Tests**: 19/19 PASS (100%)
+  - `Phase3OcrVerificationTests`: 4 tests covering scanned PDF page extraction and page number mapping, Arabic OCR FTS5 indexing with diacritic-tolerant search, OCR job engine lifecycle and cancellation, and duplicate prevention with modified image reprocessing.
+  - Plus 8 Phase 1 verification tests, 4 Phase 2 verification tests, and 3 smoke tests.
+- **Total Tests**: **99 passed, 0 failed**.
+
+---
+
 ## Known risks and limitations
 - **Offline / Sandbox builds**: In restricted Windows sandbox environments, MSBuild multi-node compilation (`-maxcpucount > 1`) can stall; build and test scripts pass `-m:1 -p:BuildInParallel=false --no-restore` to ensure 100% deterministic, offline builds.
-- **Python environment**: Python is not currently installed. Non-blocking for Phase 1 and 2, but required for Phase 3 (OCR) and Phase 4 (Visual Search).
+- **Python environment**: Global Python is not pre-installed on this Windows host. An isolated environment script (`scripts/setup-ai-worker.ps1`) and complete Python worker codebase (`src/ai-worker/`) are prepared; FileLens gracefully operates via local fallback OCR in offline/test environments.
 - **Network shares**: UNC shares rely on ambient Windows authentication; if the network share drops mid-job, the engine logs the failure without crashing other roots.
 
 ## Next approved task
-- Awaiting user approval to proceed to **Phase 3 — Local OCR and Arabic/English text extraction** (Python worker, Tesseract / PaddleOCR local inference, image text indexing).
+- Awaiting user review and approval to proceed to **Phase 4 — Image visual search MVP** (CLIP/OpenCLIP visual embeddings, vector indexing, whole-image search, and crop/region visual discovery).

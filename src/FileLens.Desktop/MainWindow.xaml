@@ -13,6 +13,8 @@
         Foreground="#172B4D">
 
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
         <!-- Style shortcuts -->
         <Style x:Key="CardPanel" TargetType="Border">
             <Setter Property="Background" Value="White" />
@@ -246,6 +248,10 @@
                                                     <TextBlock Grid.Column="0" Text="{Binding FileName}" FontSize="13" FontWeight="Bold" Foreground="#0052CC" TextTrimming="CharacterEllipsis" />
 
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                        <Border Background="#FFEBE6" CornerRadius="3" Padding="4,1" Margin="4,0,0,0"
+                                                                Visibility="{Binding IsOcrMatch, Converter={StaticResource BoolToVis}}">
+                                                            <TextBlock Text="📷 OCR" FontSize="10" FontWeight="Bold" Foreground="#BF2600" />
+                                                        </Border>
                                                         <Border Background="#EAE6FF" CornerRadius="3" Padding="4,1" Margin="4,0,0,0">
                                                             <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold" Foreground="#403294" />
                                                         </Border>
@@ -475,6 +481,7 @@
 
                                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,10">
                                     <Button Content="▶ Extract Document Text" Style="{StaticResource SuccessButton}" Command="{Binding StartExtractionCommand}" ToolTip="Extract text &amp; chunks from discovered PDF, DOCX, XLSX, PPTX, TXT, CSV, JSON, XML, HTML, and code files" />
+                                    <Button Content="📷 Run OCR (Images &amp; Scans)" Style="{StaticResource PrimaryButton}" Command="{Binding StartOcrCommand}" ToolTip="Perform Arabic &amp; English OCR on scanned PDFs and images" />
                                     <Button Content="⏹ Cancel Extraction" Style="{StaticResource DangerButton}" Command="{Binding CancelExtractionCommand}" />
                                 </WrapPanel>
 

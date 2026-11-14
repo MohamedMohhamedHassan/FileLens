@@ -1,0 +1,10 @@
+numpy==1.26.4
+Pillow==10.3.0
+pydantic==2.7.1
+opencv-python-headless==4.9.0.80
+pypdfium2==4.30.0
+# Optional engine dependencies (installed via setup script when engine selected)
+# paddlepaddle==2.6.1; sys_platform == 'win32'
+# paddleocr>=2.7.3
+# pytesseract==0.3.10
+
