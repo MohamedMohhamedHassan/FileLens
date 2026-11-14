@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using FileLens.Domain.Interfaces;
 using FileLens.Domain.Models;
 using FileLens.Infrastructure.Database.Migrations;
+using FileLens.Infrastructure.Text;
 
 namespace FileLens.Infrastructure.Database;
 
@@ -11,11 +14,16 @@ public sealed class SqliteDatabase : IIndexDatabase
 {
     private readonly SqliteConnectionFactory _connectionFactory;
     private readonly ILogger<SqliteDatabase> _logger;
+    private readonly ITextNormalizer _normalizer;
 
-    public SqliteDatabase(SqliteConnectionFactory connectionFactory, ILogger<SqliteDatabase> logger)
+    public SqliteDatabase(
+        SqliteConnectionFactory connectionFactory,
+        ILogger<SqliteDatabase> logger,
+        ITextNormalizer? normalizer = null)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;
+        _normalizer = normalizer ?? new TextNormalizer();
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -67,8 +75,24 @@ public sealed class SqliteDatabase : IIndexDatabase
             }
         }
 
+        if (currentVersion < Migration002_FullTextSearch.Version)
+        {
+            _logger.LogInformation("Applying Migration {Version}: {Description}", Migration002_FullTextSearch.Version, Migration002_FullTextSearch.Description);
+            await Migration002_FullTextSearch.ApplyAsync(connection, transaction, cancellationToken);
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = "INSERT INTO SchemaMigrations (Version, Description, AppliedAtUtc) VALUES ($v, $desc, $applied);";
+                cmd.Parameters.AddWithValue("$v", Migration002_FullTextSearch.Version);
+                cmd.Parameters.AddWithValue("$desc", Migration002_FullTextSearch.Description);
+                cmd.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("o"));
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
         await transaction.CommitAsync(cancellationToken);
-        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Math.Max(currentVersion, Migration001_InitialSchema.Version));
+        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Math.Max(currentVersion, Migration002_FullTextSearch.Version));
     }
 
     public async Task<IReadOnlyList<SearchRoot>> GetAllRootsAsync(CancellationToken cancellationToken = default)
@@ -163,12 +187,19 @@ public sealed class SqliteDatabase : IIndexDatabase
     public async Task DeleteRootAsync(SearchRootId id, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction();
         using var cmd = connection.CreateCommand();
-        // Deleting from IndexRoots cascades to IndexedFiles, IndexJobs, IndexJobProgress, IndexErrors
-        cmd.CommandText = "DELETE FROM IndexRoots WHERE Id = $id;";
+        cmd.Transaction = transaction;
+
+        // Clean FTS virtual tables first since SQLite virtual tables don't automatically follow external foreign keys
+        cmd.CommandText = @"
+            DELETE FROM DocumentTextFts WHERE FileId IN (SELECT Id FROM IndexedFiles WHERE RootId = $id);
+            DELETE FROM DocumentChunkFts WHERE FileId IN (SELECT Id FROM IndexedFiles WHERE RootId = $id);
+            DELETE FROM IndexRoots WHERE Id = $id;";
         cmd.Parameters.AddWithValue("$id", id.Value.ToString());
 
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task UpsertFilesBatchAsync(IReadOnlyList<IndexedFile> files, CancellationToken cancellationToken = default)
@@ -505,6 +536,520 @@ public sealed class SqliteDatabase : IIndexDatabase
             LastIndexedUtc = DateTime.Parse(reader.GetString(11), null, DateTimeStyles.RoundtripKind),
             Status = (FileStatus)reader.GetInt32(12)
         };
+    }
+
+    // =========================================================================
+    // Phase 2: Full-Text Search and Document Extraction Operations
+    // =========================================================================
+
+    public async Task UpsertDocumentTextAsync(ExtractedDocument doc, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        await using var transaction = connection.BeginTransaction();
+
+        // 1. Fetch file name
+        string fileName = string.Empty;
+        using (var fetchCmd = connection.CreateCommand())
+        {
+            fetchCmd.Transaction = transaction;
+            fetchCmd.CommandText = "SELECT FileName FROM IndexedFiles WHERE Id = $fileId;";
+            fetchCmd.Parameters.AddWithValue("$fileId", doc.FileId.ToString());
+            var res = await fetchCmd.ExecuteScalarAsync(cancellationToken);
+            if (res != null && res != DBNull.Value)
+            {
+                fileName = res.ToString() ?? string.Empty;
+            }
+        }
+
+        // 2. Upsert DocumentText row
+        string metadataJson = JsonSerializer.Serialize(doc.Metadata);
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = transaction;
+            cmd.CommandText = @"
+                INSERT INTO DocumentText (
+                    FileId, ExtractorId, ExtractionVersion, Status, RawText, NormalizedText,
+                    MetadataJson, ExtractedSizeBytes, ExtractedAtUtc, ErrorMessage
+                )
+                VALUES (
+                    $fileId, $extractorId, $version, $status, $raw, $norm,
+                    $meta, $size, $extractedAt, $err
+                )
+                ON CONFLICT(FileId) DO UPDATE SET
+                    ExtractorId = excluded.ExtractorId,
+                    ExtractionVersion = excluded.ExtractionVersion,
+                    Status = excluded.Status,
+                    RawText = excluded.RawText,
+                    NormalizedText = excluded.NormalizedText,
+                    MetadataJson = excluded.MetadataJson,
+                    ExtractedSizeBytes = excluded.ExtractedSizeBytes,
+                    ExtractedAtUtc = excluded.ExtractedAtUtc,
+                    ErrorMessage = excluded.ErrorMessage;";
+
+            cmd.Parameters.AddWithValue("$fileId", doc.FileId.ToString());
+            cmd.Parameters.AddWithValue("$extractorId", doc.ExtractorId);
+            cmd.Parameters.AddWithValue("$version", doc.ExtractionVersion);
+            cmd.Parameters.AddWithValue("$status", (int)doc.Status);
+            cmd.Parameters.AddWithValue("$raw", doc.RawText);
+            cmd.Parameters.AddWithValue("$norm", doc.NormalizedText);
+            cmd.Parameters.AddWithValue("$meta", metadataJson);
+            cmd.Parameters.AddWithValue("$size", doc.ExtractedSizeBytes);
+            cmd.Parameters.AddWithValue("$extractedAt", doc.ExtractedAtUtc.ToString("o"));
+            cmd.Parameters.AddWithValue("$err", (object?)doc.ErrorMessage ?? DBNull.Value);
+
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 3. Clear old chunks and FTS entries
+        using (var cleanCmd = connection.CreateCommand())
+        {
+            cleanCmd.Transaction = transaction;
+            cleanCmd.CommandText = @"
+                DELETE FROM DocumentChunks WHERE FileId = $fileId;
+                DELETE FROM DocumentTextFts WHERE FileId = $fileId;
+                DELETE FROM DocumentChunkFts WHERE FileId = $fileId;";
+            cleanCmd.Parameters.AddWithValue("$fileId", doc.FileId.ToString());
+            await cleanCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 4. Populate DocumentTextFts and DocumentChunks if extracted
+        if (doc.Status == ExtractionStatus.Extracted && !string.IsNullOrWhiteSpace(doc.RawText))
+        {
+            using (var ftsCmd = connection.CreateCommand())
+            {
+                ftsCmd.Transaction = transaction;
+                ftsCmd.CommandText = @"
+                    INSERT INTO DocumentTextFts (FileId, FileName, NormalizedText, RawText)
+                    VALUES ($fileId, $fileName, $norm, $raw);";
+                ftsCmd.Parameters.AddWithValue("$fileId", doc.FileId.ToString());
+                ftsCmd.Parameters.AddWithValue("$fileName", fileName);
+                ftsCmd.Parameters.AddWithValue("$norm", doc.NormalizedText);
+                ftsCmd.Parameters.AddWithValue("$raw", doc.RawText);
+                await ftsCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            var chunksToInsert = doc.Chunks.Count > 0 ? doc.Chunks : new[]
+            {
+                new DocumentChunk
+                {
+                    Id = Guid.NewGuid(),
+                    FileId = doc.FileId,
+                    ChunkIndex = 0,
+                    LocationType = "Document",
+                    LocationReference = "Full Document",
+                    RawText = doc.RawText,
+                    NormalizedText = doc.NormalizedText
+                }
+            };
+
+            foreach (var chunk in chunksToInsert)
+            {
+                using var chunkCmd = connection.CreateCommand();
+                chunkCmd.Transaction = transaction;
+                chunkCmd.CommandText = @"
+                    INSERT INTO DocumentChunks (
+                        Id, FileId, ChunkIndex, LocationType, LocationReference,
+                        PageNumber, SheetName, CellAddress, SlideNumber, RawText, NormalizedText
+                    )
+                    VALUES (
+                        $id, $fileId, $idx, $locType, $locRef,
+                        $page, $sheet, $cell, $slide, $raw, $norm
+                    );
+
+                    INSERT INTO DocumentChunkFts (ChunkId, FileId, LocationReference, NormalizedText, RawText)
+                    VALUES ($id, $fileId, $locRef, $norm, $raw);";
+
+                chunkCmd.Parameters.AddWithValue("$id", chunk.Id.ToString());
+                chunkCmd.Parameters.AddWithValue("$fileId", doc.FileId.ToString());
+                chunkCmd.Parameters.AddWithValue("$idx", chunk.ChunkIndex);
+                chunkCmd.Parameters.AddWithValue("$locType", chunk.LocationType);
+                chunkCmd.Parameters.AddWithValue("$locRef", chunk.LocationReference);
+                chunkCmd.Parameters.AddWithValue("$page", (object?)chunk.PageNumber ?? DBNull.Value);
+                chunkCmd.Parameters.AddWithValue("$sheet", (object?)chunk.SheetName ?? DBNull.Value);
+                chunkCmd.Parameters.AddWithValue("$cell", (object?)chunk.CellAddress ?? DBNull.Value);
+                chunkCmd.Parameters.AddWithValue("$slide", (object?)chunk.SlideNumber ?? DBNull.Value);
+                chunkCmd.Parameters.AddWithValue("$raw", chunk.RawText);
+                chunkCmd.Parameters.AddWithValue("$norm", chunk.NormalizedText);
+
+                await chunkCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<ExtractedDocument?> GetExtractedDocumentByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        ExtractedDocument? doc = null;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT t.FileId, f.FullPath, t.ExtractorId, t.ExtractionVersion, t.Status,
+                       t.RawText, t.NormalizedText, t.MetadataJson, t.ExtractedSizeBytes,
+                       t.ExtractedAtUtc, t.ErrorMessage
+                FROM DocumentText t
+                JOIN IndexedFiles f ON f.Id = t.FileId
+                WHERE t.FileId = $fileId;";
+            cmd.Parameters.AddWithValue("$fileId", fileId.ToString());
+
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                var metadata = new Dictionary<string, string>();
+                if (!reader.IsDBNull(7))
+                {
+                    try
+                    {
+                        var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(7));
+                        if (dict != null) metadata = dict;
+                    }
+                    catch { }
+                }
+
+                doc = new ExtractedDocument
+                {
+                    FileId = Guid.Parse(reader.GetString(0)),
+                    FullPath = reader.GetString(1),
+                    ExtractorId = reader.GetString(2),
+                    ExtractionVersion = reader.GetInt32(3),
+                    Status = (ExtractionStatus)reader.GetInt32(4),
+                    RawText = reader.GetString(5),
+                    NormalizedText = reader.GetString(6),
+                    Metadata = metadata,
+                    ExtractedSizeBytes = reader.GetInt64(8),
+                    ExtractedAtUtc = DateTime.Parse(reader.GetString(9), null, DateTimeStyles.RoundtripKind),
+                    ErrorMessage = reader.IsDBNull(10) ? null : reader.GetString(10)
+                };
+            }
+        }
+
+        if (doc == null) return null;
+
+        var chunks = new List<DocumentChunk>();
+        using (var chunkCmd = connection.CreateCommand())
+        {
+            chunkCmd.CommandText = @"
+                SELECT Id, FileId, ChunkIndex, LocationType, LocationReference,
+                       PageNumber, SheetName, CellAddress, SlideNumber, RawText, NormalizedText
+                FROM DocumentChunks
+                WHERE FileId = $fileId
+                ORDER BY ChunkIndex ASC;";
+            chunkCmd.Parameters.AddWithValue("$fileId", fileId.ToString());
+
+            using var chunkReader = await chunkCmd.ExecuteReaderAsync(cancellationToken);
+            while (await chunkReader.ReadAsync(cancellationToken))
+            {
+                chunks.Add(new DocumentChunk
+                {
+                    Id = Guid.Parse(chunkReader.GetString(0)),
+                    FileId = Guid.Parse(chunkReader.GetString(1)),
+                    ChunkIndex = chunkReader.GetInt32(2),
+                    LocationType = chunkReader.GetString(3),
+                    LocationReference = chunkReader.GetString(4),
+                    PageNumber = chunkReader.IsDBNull(5) ? null : chunkReader.GetInt32(5),
+                    SheetName = chunkReader.IsDBNull(6) ? null : chunkReader.GetString(6),
+                    CellAddress = chunkReader.IsDBNull(7) ? null : chunkReader.GetString(7),
+                    SlideNumber = chunkReader.IsDBNull(8) ? null : chunkReader.GetInt32(8),
+                    RawText = chunkReader.GetString(9),
+                    NormalizedText = chunkReader.GetString(10)
+                });
+            }
+        }
+
+        return new ExtractedDocument
+        {
+            FileId = doc.FileId,
+            FullPath = doc.FullPath,
+            ExtractorId = doc.ExtractorId,
+            ExtractionVersion = doc.ExtractionVersion,
+            Status = doc.Status,
+            RawText = doc.RawText,
+            NormalizedText = doc.NormalizedText,
+            Chunks = chunks,
+            Metadata = doc.Metadata,
+            ExtractedSizeBytes = doc.ExtractedSizeBytes,
+            ExtractedAtUtc = doc.ExtractedAtUtc,
+            ErrorMessage = doc.ErrorMessage
+        };
+    }
+
+    public async Task<SearchResultsPage> SearchFullTextAsync(SearchQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var sw = Stopwatch.StartNew();
+        string normalizedQuery = _normalizer.NormalizeQuery(query.Text);
+
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            return new SearchResultsPage
+            {
+                Items = Array.Empty<SearchResult>(),
+                TotalMatches = 0,
+                SearchDurationMs = sw.ElapsedMilliseconds,
+                QueryUsed = string.Empty
+            };
+        }
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        var filterClauses = new List<string>();
+        using var cmd = connection.CreateCommand();
+
+        cmd.Parameters.AddWithValue("$ftsQuery", normalizedQuery);
+
+        if (query.Extensions != null && query.Extensions.Count > 0)
+        {
+            var extParams = new List<string>();
+            for (int i = 0; i < query.Extensions.Count; i++)
+            {
+                string pName = $"$ext{i}";
+                extParams.Add(pName);
+                cmd.Parameters.AddWithValue(pName, query.Extensions[i].ToLowerInvariant());
+            }
+            filterClauses.Add($"LOWER(f.Extension) IN ({string.Join(",", extParams)})");
+        }
+
+        if (query.RootIds != null && query.RootIds.Count > 0)
+        {
+            var rootParams = new List<string>();
+            for (int i = 0; i < query.RootIds.Count; i++)
+            {
+                string pName = $"$root{i}";
+                rootParams.Add(pName);
+                cmd.Parameters.AddWithValue(pName, query.RootIds[i].Value.ToString());
+            }
+            filterClauses.Add($"f.RootId IN ({string.Join(",", rootParams)})");
+        }
+
+        if (query.FromDateUtc.HasValue)
+        {
+            filterClauses.Add("f.ModifiedAtUtc >= $fromDate");
+            cmd.Parameters.AddWithValue("$fromDate", query.FromDateUtc.Value.ToString("o"));
+        }
+
+        if (query.ToDateUtc.HasValue)
+        {
+            filterClauses.Add("f.ModifiedAtUtc <= $toDate");
+            cmd.Parameters.AddWithValue("$toDate", query.ToDateUtc.Value.ToString("o"));
+        }
+
+        if (query.MinSizeBytes.HasValue)
+        {
+            filterClauses.Add("f.SizeBytes >= $minSize");
+            cmd.Parameters.AddWithValue("$minSize", query.MinSizeBytes.Value);
+        }
+
+        if (query.MaxSizeBytes.HasValue)
+        {
+            filterClauses.Add("f.SizeBytes <= $maxSize");
+            cmd.Parameters.AddWithValue("$maxSize", query.MaxSizeBytes.Value);
+        }
+
+        string whereFilter = filterClauses.Count > 0 ? "AND " + string.Join(" AND ", filterClauses) : string.Empty;
+
+        int limit = Math.Clamp(query.PageSize, 1, 500);
+        int offset = Math.Max(0, (query.PageNumber - 1) * limit);
+        cmd.Parameters.AddWithValue("$limit", limit);
+        cmd.Parameters.AddWithValue("$offset", offset);
+
+        cmd.CommandText = $@"
+            WITH RankedMatches AS (
+                SELECT
+                    FileId,
+                    ChunkId,
+                    LocationReference,
+                    snippet(DocumentChunkFts, 3, '<mark>', '</mark>', '...', 24) AS Snippet,
+                    rank AS Score,
+                    -- Chunk matches get priority 0, document matches get priority 1
+                    0 AS MatchPriority
+                FROM DocumentChunkFts
+                WHERE DocumentChunkFts MATCH $ftsQuery
+
+                UNION ALL
+
+                SELECT
+                    FileId,
+                    NULL AS ChunkId,
+                    'Document Title' AS LocationReference,
+                    snippet(DocumentTextFts, 1, '<mark>', '</mark>', '...', 24) AS Snippet,
+                    rank - 5.0 AS Score,
+                    1 AS MatchPriority
+                FROM DocumentTextFts
+                WHERE DocumentTextFts MATCH $ftsQuery
+            ),
+            RankedWithRowNum AS (
+                SELECT
+                    FileId,
+                    ChunkId,
+                    LocationReference,
+                    Snippet,
+                    Score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY FileId
+                        ORDER BY MatchPriority ASC, Score ASC
+                    ) AS RowNum
+                FROM RankedMatches
+            ),
+            BestMatches AS (
+                SELECT
+                    FileId,
+                    ChunkId,
+                    LocationReference,
+                    Snippet,
+                    Score AS BestScore
+                FROM RankedWithRowNum
+                WHERE RowNum = 1
+            )
+            SELECT
+                b.FileId,
+                f.RootId,
+                f.FullPath,
+                f.FileName,
+                f.Extension,
+                f.SizeBytes,
+                f.ModifiedAtUtc,
+                b.Snippet,
+                b.BestScore,
+                COALESCE(c.LocationReference, b.LocationReference) AS LocationRef,
+                c.PageNumber,
+                c.SheetName,
+                c.CellAddress,
+                c.SlideNumber,
+                t.MetadataJson,
+                COUNT(*) OVER() AS TotalCount
+            FROM BestMatches b
+            JOIN IndexedFiles f ON f.Id = b.FileId
+            LEFT JOIN DocumentChunks c ON c.Id = b.ChunkId
+            LEFT JOIN DocumentText t ON t.FileId = b.FileId
+            WHERE 1=1 {whereFilter}
+            ORDER BY b.BestScore ASC
+            LIMIT $limit OFFSET $offset;";
+
+        var results = new List<SearchResult>();
+        int totalMatches = 0;
+
+        using (var reader = await cmd.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                totalMatches = reader.GetInt32(15);
+
+                var metadata = new Dictionary<string, string>();
+                if (!reader.IsDBNull(14))
+                {
+                    string json = reader.GetString(14);
+                    try
+                    {
+                        var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                        if (dict != null) metadata = dict;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                results.Add(new SearchResult
+                {
+                    FileId = Guid.Parse(reader.GetString(0)),
+                    RootId = new SearchRootId(Guid.Parse(reader.GetString(1))),
+                    FullPath = reader.GetString(2),
+                    FileName = reader.GetString(3),
+                    Extension = reader.GetString(4),
+                    SizeBytes = reader.GetInt64(5),
+                    ModifiedAtUtc = DateTime.Parse(reader.GetString(6), null, DateTimeStyles.RoundtripKind),
+                    Snippet = reader.GetString(7),
+                    Score = reader.GetDouble(8),
+                    LocationReference = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    PageNumber = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+                    SheetName = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    CellAddress = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    SlideNumber = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+                    DocumentMetadata = metadata
+                });
+            }
+        }
+
+        sw.Stop();
+        return new SearchResultsPage
+        {
+            Items = results,
+            TotalMatches = totalMatches,
+            SearchDurationMs = sw.ElapsedMilliseconds,
+            QueryUsed = normalizedQuery
+        };
+    }
+
+    public async Task<ExtractionStatistics> GetExtractionStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT
+                (SELECT COUNT(*) FROM IndexedFiles) AS TotalFiles,
+                (SELECT COUNT(*) FROM IndexedFiles f LEFT JOIN DocumentText t ON t.FileId = f.Id WHERE t.FileId IS NULL) AS AwaitingExtraction,
+                (SELECT COUNT(*) FROM DocumentText WHERE Status = 2) AS SuccessfullyExtracted,
+                (SELECT COUNT(*) FROM DocumentText WHERE Status IN (5, 6, 7)) AS FailedExtractions,
+                (SELECT COUNT(*) FROM DocumentText WHERE Status = 3) AS UnsupportedFormats,
+                (SELECT COALESCE(SUM(ExtractedSizeBytes), 0) FROM DocumentText) AS IndexedTextSizeBytes;";
+
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return new ExtractionStatistics
+            {
+                TotalFiles = reader.GetInt32(0),
+                AwaitingExtraction = reader.GetInt32(1),
+                SuccessfullyExtracted = reader.GetInt32(2),
+                FailedExtractions = reader.GetInt32(3),
+                UnsupportedFormats = reader.GetInt32(4),
+                IndexedTextSizeBytes = reader.GetInt64(5)
+            };
+        }
+
+        return new ExtractionStatistics();
+    }
+
+    public async Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingExtractionAsync(
+        SearchRootId? rootId = null,
+        int limit = 500,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+
+        string rootFilter = rootId.HasValue ? "AND f.RootId = $rootId" : string.Empty;
+        if (rootId.HasValue)
+        {
+            cmd.Parameters.AddWithValue("$rootId", rootId.Value.Value.ToString());
+        }
+
+        cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 2000));
+
+        cmd.CommandText = $@"
+            SELECT f.Id, f.RootId, f.FullPath, f.NormalizedPath, f.RelativePath, f.FileName,
+                   f.Extension, f.SizeBytes, f.CreatedAtUtc, f.ModifiedAtUtc, f.Attributes,
+                   f.LastIndexedUtc, f.Status
+            FROM IndexedFiles f
+            LEFT JOIN DocumentText t ON t.FileId = f.Id
+            WHERE f.Status = 1
+              AND (t.FileId IS NULL OR f.ModifiedAtUtc > t.ExtractedAtUtc)
+              {rootFilter}
+            ORDER BY f.LastIndexedUtc ASC
+            LIMIT $limit;";
+
+        var files = new List<IndexedFile>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            files.Add(ReadIndexedFile(reader));
+        }
+
+        return files;
     }
 }
 

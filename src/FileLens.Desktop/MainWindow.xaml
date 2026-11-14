@@ -6,8 +6,8 @@
         xmlns:vm="clr-namespace:FileLens.Desktop.ViewModels"
         mc:Ignorable="d"
         Title="FileLens — Local-First File Search &amp; Indexing Engine"
-        Height="780" Width="1180"
-        MinHeight="650" MinWidth="950"
+        Height="840" Width="1240"
+        MinHeight="680" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
         Background="#F4F5F7"
         Foreground="#172B4D">
@@ -22,7 +22,7 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.08" Color="Black" />
+                    <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.06" Color="Black" />
                 </Setter.Value>
             </Setter>
         </Style>
@@ -44,16 +44,30 @@
             <Setter Property="BorderBrush" Value="#0052CC" />
         </Style>
 
+        <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
+            <Setter Property="Background" Value="#00875A" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#00875A" />
+        </Style>
+
         <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
             <Setter Property="Background" Value="#DE350B" />
             <Setter Property="Foreground" Value="White" />
             <Setter Property="BorderBrush" Value="#DE350B" />
         </Style>
+
+        <Style x:Key="FilterComboBox" TargetType="ComboBox">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="BorderBrush" Value="#C1C7D0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
     </Window.Resources>
 
     <DockPanel>
         <!-- Top App Header -->
-        <Border DockPanel.Dock="Top" Background="#0747A6" Padding="20,14">
+        <Border DockPanel.Dock="Top" Background="#0747A6" Padding="20,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -63,30 +77,30 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="FileLens" FontSize="22" FontWeight="Bold" Foreground="White" />
                         <Border Background="#0052CC" CornerRadius="4" Padding="6,2" Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="PHASE 1" FontSize="11" FontWeight="Bold" Foreground="#DEEBFF" />
+                            <TextBlock Text="PHASE 2" FontSize="11" FontWeight="Bold" Foreground="#DEEBFF" />
                         </Border>
                     </StackPanel>
-                    <TextBlock Text="Metadata Indexing &amp; Safe Job Engine • Windows Local-First Desktop" FontSize="12" Foreground="#B3D4FF" Margin="0,3,0,0" />
+                    <TextBlock Text="Full-Text Search &amp; Document Previews • Windows Local-First Desktop" FontSize="12" Foreground="#B3D4FF" Margin="0,3,0,0" />
                 </StackPanel>
 
                 <!-- Quick KPI Summary Header -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <StackPanel Margin="16,0" HorizontalAlignment="Center">
-                        <TextBlock Text="CONFIGURED ROOTS" FontSize="10" FontWeight="Bold" Foreground="#8EB8F7" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding TotalRoots}" FontSize="18" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
-                    </StackPanel>
-                    <Separator Width="1" Height="28" Background="#2684FF" />
-                    <StackPanel Margin="16,0" HorizontalAlignment="Center">
+                    <StackPanel Margin="14,0" HorizontalAlignment="Center">
                         <TextBlock Text="INDEXED FILES" FontSize="10" FontWeight="Bold" Foreground="#8EB8F7" HorizontalAlignment="Center" />
                         <TextBlock Text="{Binding TotalFilesIndexed}" FontSize="18" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
                     </StackPanel>
                     <Separator Width="1" Height="28" Background="#2684FF" />
-                    <StackPanel Margin="16,0" HorizontalAlignment="Center">
-                        <TextBlock Text="TOTAL SIZE" FontSize="10" FontWeight="Bold" Foreground="#8EB8F7" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding TotalSizeDisplay}" FontSize="18" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
+                    <StackPanel Margin="14,0" HorizontalAlignment="Center">
+                        <TextBlock Text="EXTRACTED DOCS" FontSize="10" FontWeight="Bold" Foreground="#8EB8F7" HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding SuccessfullyExtracted}" FontSize="18" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
                     </StackPanel>
                     <Separator Width="1" Height="28" Background="#2684FF" />
-                    <StackPanel Margin="16,0" HorizontalAlignment="Center">
+                    <StackPanel Margin="14,0" HorizontalAlignment="Center">
+                        <TextBlock Text="INDEXED TEXT" FontSize="10" FontWeight="Bold" Foreground="#8EB8F7" HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding IndexedTextSizeDisplay}" FontSize="18" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" />
+                    </StackPanel>
+                    <Separator Width="1" Height="28" Background="#2684FF" />
+                    <StackPanel Margin="14,0" HorizontalAlignment="Center">
                         <TextBlock Text="ERRORS" FontSize="10" FontWeight="Bold" Foreground="#FF8F73" HorizontalAlignment="Center" />
                         <TextBlock Text="{Binding TotalErrors}" FontSize="18" FontWeight="Bold" Foreground="#FFAB00" HorizontalAlignment="Center" />
                     </StackPanel>
@@ -95,190 +109,428 @@
         </Border>
 
         <!-- Bottom Status Bar -->
-        <StatusBar DockPanel.Dock="Bottom" Background="#EBECF0" Padding="8,4" BorderBrush="#DFFE1E6" BorderThickness="0,1,0,0">
+        <StatusBar DockPanel.Dock="Bottom" Background="#EBECF0" Padding="8,4" BorderBrush="#DFE1E6" BorderThickness="0,1,0,0">
             <StatusBarItem>
                 <TextBlock x:Name="AiWorkerStatusText" Text="AI Worker: Checking..." FontSize="12" Foreground="#42526E" />
             </StatusBarItem>
             <Separator Width="1" Height="14" Margin="8,0" Background="#C1C7D0" />
             <StatusBarItem>
-                <TextBlock Text="Database: SQLite (WAL Mode)" FontSize="12" Foreground="#42526E" />
+                <TextBlock Text="Database: SQLite FTS5 (Bilingual)" FontSize="12" Foreground="#42526E" />
             </StatusBarItem>
             <Separator Width="1" Height="14" Margin="8,0" Background="#C1C7D0" />
             <StatusBarItem>
                 <TextBlock Text="{Binding JobStatusText, StringFormat='Job Engine: {0}'}" FontSize="12" FontWeight="SemiBold" Foreground="#0052CC" />
             </StatusBarItem>
+            <Separator Width="1" Height="14" Margin="8,0" Background="#C1C7D0" />
+            <StatusBarItem>
+                <TextBlock Text="{Binding ExtractionStatusText, StringFormat='Extraction: {0}'}" FontSize="12" FontWeight="SemiBold" Foreground="#00875A" />
+            </StatusBarItem>
         </StatusBar>
 
-        <!-- Main Body Grid -->
-        <Grid Margin="16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="6*" MinWidth="420" />
-                <ColumnDefinition Width="14" />
-                <ColumnDefinition Width="5*" MinWidth="360" />
-            </Grid.ColumnDefinitions>
+        <!-- Main Content Area: Tabs -->
+        <TabControl Margin="16" Background="Transparent" BorderThickness="0">
+            <!-- TAB 1: Search & Document Previews -->
+            <TabItem Header="  🔍 Search &amp; Document Previews  " FontSize="13" FontWeight="SemiBold" Padding="14,8">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="10" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
 
-            <!-- LEFT PANE: Search Roots Management -->
-            <Grid Grid.Column="0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+                    <!-- Universal Search & Filter Card -->
+                    <Border Grid.Row="0" Style="{StaticResource CardPanel}">
+                        <StackPanel Orientation="Vertical">
+                            <!-- Search Bar -->
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
 
-                <!-- Add Location Card -->
-                <Border Grid.Row="0" Style="{StaticResource CardPanel}">
-                    <StackPanel Orientation="Vertical">
-                        <TextBlock Text="Add Search Location" FontSize="14" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,4" />
-                        <TextBlock Text="Add local folders, drives (C:\), or authenticated UNC network shares (\\SERVER\Share):" FontSize="11" Foreground="#5E6C84" Margin="0,0,0,10" TextWrapping="Wrap" />
+                                <TextBox Grid.Column="0" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="10,8" FontSize="14" VerticalContentAlignment="Center"
+                                         ToolTip="Search across document text, titles, notes, and chunks (Arabic &amp; English supported)">
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
+                                <Button Grid.Column="1" Content="🔍 Search" Style="{StaticResource PrimaryButton}"
+                                        Command="{Binding SearchCommand}" IsDefault="True" Margin="8,0,0,0" Padding="16,8" FontSize="13" />
 
-                            <TextBox Grid.Column="0" Text="{Binding NewLocationPath, UpdateSourceTrigger=PropertyChanged}"
-                                     Padding="8,6" FontSize="12" VerticalContentAlignment="Center"
-                                     ToolTip="Enter a local directory or UNC network path (e.g., \\192.168.1.50\SharedDocs)" />
+                                <Button Grid.Column="2" Content="✕ Clear" Style="{StaticResource ActionButton}"
+                                        Command="{Binding ClearSearchCommand}" Margin="4,0,0,0" Padding="12,8" FontSize="13" />
+                            </Grid>
 
-                            <Button Grid.Column="1" Content="Browse..." Style="{StaticResource ActionButton}"
-                                    Command="{Binding BrowseFolderCommand}" Margin="6,0,0,0" ToolTip="Browse for a local folder" />
+                            <!-- Filters and Status Row -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                            <Button Grid.Column="2" Content="+ Add Location" Style="{StaticResource PrimaryButton}"
-                                    Command="{Binding AddLocationCommand}" Margin="6,0,0,0" />
-                        </Grid>
-                    </StackPanel>
-                </Border>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Format:" FontSize="12" FontWeight="SemiBold" Foreground="#5E6C84" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <ComboBox ItemsSource="{Binding ExtensionFilters}" SelectedItem="{Binding SelectedExtensionFilter}"
+                                              Style="{StaticResource FilterComboBox}" Width="210" />
+                                </StackPanel>
 
-                <!-- Configured Locations Card -->
-                <Border Grid.Row="2" Style="{StaticResource CardPanel}">
-                    <Grid>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <TextBlock Text="Date:" FontSize="12" FontWeight="SemiBold" Foreground="#5E6C84" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <ComboBox ItemsSource="{Binding DateFilters}" SelectedItem="{Binding SelectedDateFilter}"
+                                              Style="{StaticResource FilterComboBox}" Width="150" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="2" Text="{Binding SearchStatsSummary}" FontSize="12" Foreground="#0052CC"
+                                           FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Split Results & Preview Grid -->
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="5*" MinWidth="380" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="6*" MinWidth="420" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- LEFT: Search Results List -->
+                        <Border Grid.Column="0" Style="{StaticResource CardPanel}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="8" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Matching Documents" FontSize="14" FontWeight="Bold" Foreground="#172B4D" />
+                                    <TextBlock Text="{Binding SearchResults.Count, StringFormat=' ({0} matches)'}" FontSize="12" Foreground="#6B778C" VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <ListBox Grid.Row="2" ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedSearchResult}"
+                                         Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="10,8" />
+                                            <Setter Property="Margin" Value="0,0,0,8" />
+                                            <Setter Property="Background" Value="#FAFBFC" />
+                                            <Setter Property="BorderBrush" Value="#DFE1E6" />
+                                            <Setter Property="BorderThickness" Value="1" />
+                                            <Setter Property="Cursor" Value="Hand" />
+                                            <Style.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter Property="Background" Value="#DEEBFF" />
+                                                    <Setter Property="BorderBrush" Value="#2684FF" />
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="BorderBrush" Value="#4C9AFF" />
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:SearchResultViewModel}">
+                                            <StackPanel Orientation="Vertical">
+                                                <!-- Row 1: Filename & Badges -->
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <TextBlock Grid.Column="0" Text="{Binding FileName}" FontSize="13" FontWeight="Bold" Foreground="#0052CC" TextTrimming="CharacterEllipsis" />
+
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                        <Border Background="#EAE6FF" CornerRadius="3" Padding="4,1" Margin="4,0,0,0">
+                                                            <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold" Foreground="#403294" />
+                                                        </Border>
+                                                        <Border Background="#E3FCEF" CornerRadius="3" Padding="4,1" Margin="4,0,0,0">
+                                                            <TextBlock Text="{Binding LocationBadge}" FontSize="10" FontWeight="Bold" Foreground="#006644" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <!-- Row 2: Path & Size -->
+                                                <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="#6B778C" TextTrimming="CharacterEllipsis" Margin="0,2,0,4" />
+
+                                                <!-- Row 3: Snippet -->
+                                                <Border Background="#FFFFFF" BorderBrush="#EBECF0" BorderThickness="1" CornerRadius="3" Padding="6,4" Margin="0,2,0,4">
+                                                    <TextBlock Text="{Binding CleanSnippet}" FontSize="11" Foreground="#172B4D" TextWrapping="Wrap" MaxHeight="45" TextTrimming="CharacterEllipsis" />
+                                                </Border>
+
+                                                <!-- Row 4: Footer Meta -->
+                                                <Grid Margin="0,2,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding SizeDisplay, StringFormat='Size: {0}'}" FontSize="10" Foreground="#7A869A" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding ScoreDisplay, StringFormat='Relevance: {0}'}" FontSize="10" FontWeight="SemiBold" Foreground="#00875A" />
+                                                </Grid>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
+
+                        <!-- RIGHT: Document Preview Panel -->
+                        <Border Grid.Column="2" Style="{StaticResource CardPanel}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="8" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <!-- Preview Header -->
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding PreviewTitle}" FontSize="15" FontWeight="Bold" Foreground="#172B4D" TextTrimming="CharacterEllipsis" />
+                                        <Border Background="#E3FCEF" CornerRadius="3" Padding="6,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PreviewLocation}" FontSize="11" FontWeight="Bold" Foreground="#006644" />
+                                        </Border>
+                                    </StackPanel>
+
+                                    <!-- Quick Actions -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button Content="Open File" Style="{StaticResource ActionButton}" Command="{Binding OpenSelectedFileCommand}" ToolTip="Open file with default system application" />
+                                        <Button Content="Show in Folder" Style="{StaticResource ActionButton}" Command="{Binding OpenSelectedFolderCommand}" ToolTip="Show file location in Windows Explorer" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Preview Metadata -->
+                                <Border Grid.Row="1" Background="#F4F5F7" CornerRadius="4" Padding="8,4" Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding PreviewMetadata}" FontSize="11" Foreground="#5E6C84" TextTrimming="CharacterEllipsis" />
+                                </Border>
+
+                                <!-- Preview Content Text Viewer -->
+                                <Border Grid.Row="3" Background="#FAFBFC" BorderBrush="#DFE1E6" BorderThickness="1" CornerRadius="4" Padding="12">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                        <TextBox Text="{Binding PreviewContent, Mode=OneWay}" IsReadOnly="True"
+                                                 FontFamily="Cascadia Code, Consolas, Courier New, Segoe UI" FontSize="12"
+                                                 Background="Transparent" BorderThickness="0" TextWrapping="Wrap" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 2: Indexing Dashboard & Root Management -->
+            <TabItem Header="  ⚙ Indexing &amp; Roots Management  " FontSize="13" FontWeight="SemiBold" Padding="14,8">
+                <Grid Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="6*" MinWidth="420" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="5*" MinWidth="360" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- LEFT PANE: Search Roots Management -->
+                    <Grid Grid.Column="0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="8" />
+                            <RowDefinition Height="12" />
                             <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Configured Search Roots" FontSize="14" FontWeight="Bold" Foreground="#172B4D" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding Roots.Count, StringFormat=' ({0} total)'}" FontSize="12" Foreground="#6B778C" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <!-- Add Location Card -->
+                        <Border Grid.Row="0" Style="{StaticResource CardPanel}">
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Add Search Location" FontSize="14" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,4" />
+                                <TextBlock Text="Add local folders, drives (C:\), or authenticated UNC network shares (\\SERVER\Share):" FontSize="11" Foreground="#5E6C84" Margin="0,0,0,10" TextWrapping="Wrap" />
 
-                        <!-- Roots DataGrid -->
-                        <DataGrid Grid.Row="2" ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedRoot}"
-                                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
-                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                                  Background="White" RowHeaderWidth="0" SelectionMode="Single"
-                                  BorderBrush="#DFE1E6" BorderThickness="1">
-                            <DataGrid.Columns>
-                                <DataGridCheckBoxColumn Header="Active" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="55" />
-                                <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
-                                <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="120" />
-                                <DataGridTextColumn Header="Files" Binding="{Binding FileCount}" Width="65" />
-                                <DataGridTextColumn Header="Status" Binding="{Binding StatusDisplay}" Width="80" />
-                                <DataGridTextColumn Header="Last Scan" Binding="{Binding LastScanDisplay}" Width="135" />
-                            </DataGrid.Columns>
-                        </DataGrid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
 
-                        <!-- Bottom Root Action Bar -->
-                        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                            <Button Content="Refresh List" Style="{StaticResource ActionButton}" Command="{Binding RefreshCommand}" />
-                            <Button Content="Remove Selected" Style="{StaticResource DangerButton}" Command="{Binding RemoveLocationCommand}"
-                                    ToolTip="Removes the root from FileLens. Physical files are NEVER deleted." />
-                        </StackPanel>
+                                    <TextBox Grid.Column="0" Text="{Binding NewLocationPath, UpdateSourceTrigger=PropertyChanged}"
+                                             Padding="8,6" FontSize="12" VerticalContentAlignment="Center"
+                                             ToolTip="Enter a local directory or UNC network path (e.g., \\192.168.1.50\SharedDocs)" />
+
+                                    <Button Grid.Column="1" Content="Browse..." Style="{StaticResource ActionButton}"
+                                            Command="{Binding BrowseFolderCommand}" Margin="6,0,0,0" ToolTip="Browse for a local folder" />
+
+                                    <Button Grid.Column="2" Content="+ Add Location" Style="{StaticResource PrimaryButton}"
+                                            Command="{Binding AddLocationCommand}" Margin="6,0,0,0" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Configured Locations Card -->
+                        <Border Grid.Row="2" Style="{StaticResource CardPanel}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="8" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Configured Search Roots" FontSize="14" FontWeight="Bold" Foreground="#172B4D" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Roots.Count, StringFormat=' ({0} total)'}" FontSize="12" Foreground="#6B778C" VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <!-- Roots DataGrid -->
+                                <DataGrid Grid.Row="2" ItemsSource="{Binding Roots}" SelectedItem="{Binding SelectedRoot}"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                          Background="White" RowHeaderWidth="0" SelectionMode="Single"
+                                          BorderBrush="#DFE1E6" BorderThickness="1">
+                                    <DataGrid.Columns>
+                                        <DataGridCheckBoxColumn Header="Active" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="55" />
+                                        <DataGridTextColumn Header="Path" Binding="{Binding Path}" Width="*" />
+                                        <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="120" />
+                                        <DataGridTextColumn Header="Files" Binding="{Binding FileCount}" Width="65" />
+                                        <DataGridTextColumn Header="Status" Binding="{Binding StatusDisplay}" Width="80" />
+                                        <DataGridTextColumn Header="Last Scan" Binding="{Binding LastScanDisplay}" Width="135" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <!-- Bottom Root Action Bar -->
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="Refresh List" Style="{StaticResource ActionButton}" Command="{Binding RefreshCommand}" />
+                                    <Button Content="Remove Selected" Style="{StaticResource DangerButton}" Command="{Binding RemoveLocationCommand}"
+                                            ToolTip="Removes the root from FileLens. Physical files are NEVER deleted." />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </Grid>
-                </Border>
-            </Grid>
 
-            <!-- RIGHT PANE: Indexing Job Engine & Real-Time Log -->
-            <Grid Grid.Column="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <!-- Engine Control Card -->
-                <Border Grid.Row="0" Style="{StaticResource CardPanel}">
-                    <StackPanel Orientation="Vertical">
-                        <TextBlock Text="Indexing Job Engine" FontSize="14" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,10" />
-
-                        <!-- Job Action Controls -->
-                        <WrapPanel Orientation="Horizontal" Margin="0,0,0,14">
-                            <Button Content="▶ Start Indexing" Style="{StaticResource PrimaryButton}" Command="{Binding StartIndexingCommand}" ToolTip="Start indexing all enabled roots or the selected root" />
-                            <Button Content="⏸ Pause" Style="{StaticResource ActionButton}" Command="{Binding PauseIndexingCommand}" ToolTip="Pause active indexing" />
-                            <Button Content="⏯ Resume" Style="{StaticResource ActionButton}" Command="{Binding ResumeIndexingCommand}" ToolTip="Resume paused indexing" />
-                            <Button Content="⏹ Cancel" Style="{StaticResource DangerButton}" Command="{Binding CancelIndexingCommand}" ToolTip="Cancel active indexing jobs" />
-                            <Button Content="🔄 Retry Failed" Style="{StaticResource ActionButton}" Command="{Binding RetryFailedCommand}" ToolTip="Retry roots with logged errors" />
-                        </WrapPanel>
-
-                        <!-- Progress Bar & Status -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding JobStatusText, StringFormat='Status: {0}'}" FontWeight="SemiBold" FontSize="12" Foreground="#0052CC" />
-                            <TextBlock Grid.Column="1" Text="{Binding ProgressPercent, StringFormat='{}{0:F0}%'}" FontSize="12" FontWeight="Bold" Foreground="#172B4D" />
-                        </Grid>
-
-                        <ProgressBar Height="10" Value="{Binding ProgressPercent}" IsIndeterminate="{Binding IsIndeterminate}" Minimum="0" Maximum="100" Margin="0,0,0,12" Background="#EBECF0" Foreground="#0052CC" />
-
-                        <!-- Live Counters Grid -->
-                        <UniformGrid Columns="4" Margin="0,0,0,10">
-                            <Border Background="#F4F5F7" Padding="8,6" Margin="0,0,4,0" CornerRadius="4">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="Discovered" FontSize="10" Foreground="#5E6C84" HorizontalAlignment="Center" />
-                                    <TextBlock Text="{Binding DiscoveredCount}" FontSize="14" FontWeight="Bold" Foreground="#172B4D" HorizontalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#E3FCEF" Padding="8,6" Margin="2,0,2,0" CornerRadius="4">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="Processed" FontSize="10" Foreground="#006644" HorizontalAlignment="Center" />
-                                    <TextBlock Text="{Binding ProcessedCount}" FontSize="14" FontWeight="Bold" Foreground="#006644" HorizontalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#FFF0B3" Padding="8,6" Margin="2,0,2,0" CornerRadius="4">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="Skipped" FontSize="10" Foreground="#172B4D" HorizontalAlignment="Center" />
-                                    <TextBlock Text="{Binding SkippedCount}" FontSize="14" FontWeight="Bold" Foreground="#172B4D" HorizontalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#FFEBE6" Padding="8,6" Margin="4,0,0,0" CornerRadius="4">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="Failed" FontSize="10" Foreground="#BF2600" HorizontalAlignment="Center" />
-                                    <TextBlock Text="{Binding FailedCount}" FontSize="14" FontWeight="Bold" Foreground="#BF2600" HorizontalAlignment="Center" />
-                                </StackPanel>
-                            </Border>
-                        </UniformGrid>
-
-                        <!-- Current File Display -->
-                        <TextBlock Text="{Binding CurrentDirectory, StringFormat='Folder: {0}'}" FontSize="11" Foreground="#6B778C" TextTrimming="CharacterEllipsis" Margin="0,2" />
-                        <TextBlock Text="{Binding CurrentFile, StringFormat='File: {0}'}" FontSize="11" Foreground="#42526E" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </Border>
-
-                <!-- Activity Log Card -->
-                <Border Grid.Row="2" Style="{StaticResource CardPanel}">
-                    <Grid>
+                    <!-- RIGHT PANE: Indexing Engines & Real-Time Log -->
+                    <Grid Grid.Column="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="8" />
+                            <RowDefinition Height="10" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Text="Activity &amp; Diagnostics Log" FontSize="14" FontWeight="Bold" Foreground="#172B4D" />
+                        <!-- File Discovery Engine Card -->
+                        <Border Grid.Row="0" Style="{StaticResource CardPanel}">
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="1. File Metadata Indexing Engine" FontSize="14" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,8" />
 
-                        <ListBox Grid.Row="2" ItemsSource="{Binding LogMessages}"
-                                 FontFamily="Consolas, Cascadia Code, Courier New" FontSize="11"
-                                 Background="#FAFBFC" BorderBrush="#DFE1E6" BorderThickness="1"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                                <!-- Action Controls -->
+                                <WrapPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button Content="▶ Start Scan" Style="{StaticResource PrimaryButton}" Command="{Binding StartIndexingCommand}" ToolTip="Discover files across roots" />
+                                    <Button Content="⏸ Pause" Style="{StaticResource ActionButton}" Command="{Binding PauseIndexingCommand}" />
+                                    <Button Content="⏯ Resume" Style="{StaticResource ActionButton}" Command="{Binding ResumeIndexingCommand}" />
+                                    <Button Content="⏹ Cancel" Style="{StaticResource DangerButton}" Command="{Binding CancelIndexingCommand}" />
+                                    <Button Content="🔄 Retry Failed" Style="{StaticResource ActionButton}" Command="{Binding RetryFailedCommand}" />
+                                </WrapPanel>
+
+                                <ProgressBar Height="8" Value="{Binding ProgressPercent}" IsIndeterminate="{Binding IsIndeterminate}" Minimum="0" Maximum="100" Margin="0,0,0,8" Background="#EBECF0" Foreground="#0052CC" />
+
+                                <UniformGrid Columns="4">
+                                    <Border Background="#F4F5F7" Padding="6,4" Margin="0,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Discovered" FontSize="9" Foreground="#5E6C84" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding DiscoveredCount}" FontSize="12" FontWeight="Bold" Foreground="#172B4D" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#E3FCEF" Padding="6,4" Margin="2,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Processed" FontSize="9" Foreground="#006644" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding ProcessedCount}" FontSize="12" FontWeight="Bold" Foreground="#006644" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#FFF0B3" Padding="6,4" Margin="2,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Skipped" FontSize="9" Foreground="#172B4D" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding SkippedCount}" FontSize="12" FontWeight="Bold" Foreground="#172B4D" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#FFEBE6" Padding="6,4" Margin="2,0,0,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Failed" FontSize="9" Foreground="#BF2600" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding FailedCount}" FontSize="12" FontWeight="Bold" Foreground="#BF2600" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Document Extraction Engine Card -->
+                        <Border Grid.Row="2" Style="{StaticResource CardPanel}">
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="2. Full-Text Document Extraction Engine" FontSize="14" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,8" />
+
+                                <WrapPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button Content="▶ Extract Document Text" Style="{StaticResource SuccessButton}" Command="{Binding StartExtractionCommand}" ToolTip="Extract text &amp; chunks from discovered PDF, DOCX, XLSX, PPTX, TXT, CSV, JSON, XML, HTML, and code files" />
+                                    <Button Content="⏹ Cancel Extraction" Style="{StaticResource DangerButton}" Command="{Binding CancelExtractionCommand}" />
+                                </WrapPanel>
+
+                                <ProgressBar Height="8" Value="{Binding ExtractionProgressPercent}" Minimum="0" Maximum="100" Margin="0,0,0,8" Background="#EBECF0" Foreground="#00875A" />
+
+                                <!-- Extraction KPI Statistics -->
+                                <UniformGrid Columns="4" Margin="0,0,0,6">
+                                    <Border Background="#EAE6FF" Padding="6,4" Margin="0,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Awaiting" FontSize="9" Foreground="#403294" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding FilesAwaitingExtraction}" FontSize="12" FontWeight="Bold" Foreground="#403294" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#E3FCEF" Padding="6,4" Margin="2,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Extracted" FontSize="9" Foreground="#006644" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding SuccessfullyExtracted}" FontSize="12" FontWeight="Bold" Foreground="#006644" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#FFEBE6" Padding="6,4" Margin="2,0,2,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Failed" FontSize="9" Foreground="#BF2600" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding FailedExtractions}" FontSize="12" FontWeight="Bold" Foreground="#BF2600" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#F4F5F7" Padding="6,4" Margin="2,0,0,0" CornerRadius="3">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock Text="Unsupported" FontSize="9" Foreground="#5E6C84" HorizontalAlignment="Center" />
+                                            <TextBlock Text="{Binding UnsupportedFormats}" FontSize="12" FontWeight="Bold" Foreground="#5E6C84" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Activity Log Card -->
+                        <Border Grid.Row="4" Style="{StaticResource CardPanel}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="6" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Text="Activity &amp; Diagnostics Log" FontSize="13" FontWeight="Bold" Foreground="#172B4D" />
+
+                                <ListBox Grid.Row="2" ItemsSource="{Binding LogMessages}"
+                                         FontFamily="Consolas, Cascadia Code, Courier New" FontSize="11"
+                                         Background="#FAFBFC" BorderBrush="#DFE1E6" BorderThickness="1"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                            </Grid>
+                        </Border>
                     </Grid>
-                </Border>
-            </Grid>
-        </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>

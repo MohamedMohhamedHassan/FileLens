@@ -4,6 +4,7 @@ namespace FileLens.IntegrationTests;
 
 public static class Program
 {
+    // [STAThread] cannot be honoured on an async Main — we manage STA ourselves per test.
     public static async Task<int> Main(string[] args)
     {
         Console.WriteLine("========================================");
@@ -29,35 +30,91 @@ public static class Program
                 if (factAttr == null)
                     continue;
 
-                object? instance = null;
-                try
+                // Tests marked [StaFact] run on a dedicated STA thread (required for WPF).
+                // Tests marked [Fact] run normally on the async context.
+                var staAttr = method.GetCustomAttribute<StaFactAttribute>();
+                bool needsSta = staAttr != null;
+
+                Exception? testException = null;
+
+                if (needsSta)
                 {
-                    instance = Activator.CreateInstance(testClass);
-                    var result = method.Invoke(instance, null);
-                    if (result is Task task)
+                    var tcs = new TaskCompletionSource<bool>();
+                    var staThread = new Thread(() =>
                     {
-                        await task;
+                        object? instance = null;
+                        try
+                        {
+                            instance = Activator.CreateInstance(testClass);
+                            var result = method.Invoke(instance, null);
+                            if (result is Task task)
+                            {
+                                // Pump the STA message loop while awaiting the task
+                                task.GetAwaiter().GetResult();
+                            }
+                            tcs.SetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            tcs.SetException(ex.InnerException ?? ex);
+                        }
+                        finally
+                        {
+                            if (instance is IDisposable d) d.Dispose();
+                        }
+                    });
+                    staThread.SetApartmentState(ApartmentState.STA);
+                    staThread.Start();
+
+                    try
+                    {
+                        await tcs.Task;
                     }
+                    catch (Exception ex)
+                    {
+                        testException = ex;
+                    }
+                }
+                else
+                {
+                    object? instance = null;
+                    try
+                    {
+                        instance = Activator.CreateInstance(testClass);
+                        var result = method.Invoke(instance, null);
+                        if (result is Task task)
+                        {
+                            await task;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        testException = ex.InnerException ?? ex;
+                    }
+                    finally
+                    {
+                        if (instance is IDisposable disposable)
+                        {
+                            disposable.Dispose();
+                        }
+                    }
+                }
+
+                if (testException == null)
+                {
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.Write("  [PASS] ");
                     Console.ResetColor();
                     Console.WriteLine(method.Name);
                     passed++;
                 }
-                catch (Exception ex)
+                else
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.Write("  [FAIL] ");
                     Console.ResetColor();
-                    Console.WriteLine($"{method.Name}: {ex.InnerException?.Message ?? ex.Message}");
+                    Console.WriteLine($"{method.Name}: {testException.Message}");
                     failed++;
-                }
-                finally
-                {
-                    if (instance is IDisposable disposable)
-                    {
-                        disposable.Dispose();
-                    }
                 }
             }
         }
@@ -69,4 +126,3 @@ public static class Program
         return failed > 0 ? 1 : 0;
     }
 }
-

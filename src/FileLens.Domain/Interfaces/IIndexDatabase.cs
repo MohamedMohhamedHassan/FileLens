@@ -92,5 +92,34 @@ public interface IIndexDatabase
     /// Resets any jobs left in Running or Paused state from an abnormal shutdown.
     /// </summary>
     Task RecoverInterruptedJobsAsync(CancellationToken cancellationToken = default);
+
+    // ==========================================
+    // Phase 2: Full-Text Search and Document Extraction
+    // ==========================================
+
+    /// <summary>
+    /// Upserts extracted text and structural chunks into SQLite and updates the FTS5 virtual index.
+    /// </summary>
+    Task UpsertDocumentTextAsync(ExtractedDocument doc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves full extracted document content and chunks by file ID.
+    /// </summary>
+    Task<ExtractedDocument?> GetExtractedDocumentByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queries the SQLite FTS5 full-text index with query parsing, filtering, ranking, and highlighting.
+    /// </summary>
+    Task<SearchResultsPage> SearchFullTextAsync(SearchQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves system-wide document extraction metrics.
+    /// </summary>
+    Task<ExtractionStatistics> GetExtractionStatisticsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves files that need document text extraction (e.g. newly discovered or modified since last extraction).
+    /// </summary>
+    Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingExtractionAsync(SearchRootId? rootId = null, int limit = 500, CancellationToken cancellationToken = default);
 }
 

@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>FileLens.IntegrationTests</RootNamespace>
     <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +18,7 @@
     <ProjectReference Include="..\..\src\FileLens.Domain\FileLens.Domain.csproj" />
     <ProjectReference Include="..\..\src\FileLens.Application\FileLens.Application.csproj" />
     <ProjectReference Include="..\..\src\FileLens.Infrastructure\FileLens.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\FileLens.Desktop\FileLens.Desktop.csproj" />
   </ItemGroup>
 
   <ItemGroup>
