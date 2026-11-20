@@ -145,5 +145,11 @@ public interface IIndexDatabase
     /// Retrieves image files or scanned PDFs awaiting OCR processing.
     /// </summary>
     Task<IReadOnlyList<IndexedFile>> GetFilesAwaitingOcrAsync(int limit = 500, CancellationToken cancellationToken = default);
+
+    // Phase 4: local visual assets and embeddings
+    Task UpsertVisualAssetAsync(VisualAsset asset, CancellationToken cancellationToken = default);
+    Task UpsertVisualEmbeddingAsync(VisualEmbedding embedding, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<(VisualAsset Asset, VisualEmbedding Embedding)>> GetVisualEmbeddingsAsync(CancellationToken cancellationToken = default);
+    Task RemoveVisualAssetAsync(Guid fileId, CancellationToken cancellationToken = default);
 }
 

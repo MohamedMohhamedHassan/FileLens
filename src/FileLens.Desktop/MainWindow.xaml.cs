@@ -13,15 +13,23 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly IAiWorkerHealthCheck _healthCheck;
     private readonly ILogger<MainWindow> _logger;
+    public VisualSearchViewModel? VisualSearch { get; }
+
+    public MainWindow(MainViewModel viewModel, IAiWorkerHealthCheck healthCheck, ILogger<MainWindow> logger)
+        : this(viewModel, healthCheck, logger, null)
+    {
+    }
 
     public MainWindow(
         MainViewModel viewModel,
         IAiWorkerHealthCheck healthCheck,
-        ILogger<MainWindow> logger)
+        ILogger<MainWindow> logger,
+        VisualSearchViewModel? visualSearch)
     {
         _viewModel = viewModel;
         _healthCheck = healthCheck;
         _logger = logger;
+        VisualSearch = visualSearch;
 
         InitializeComponent();
         DataContext = _viewModel;

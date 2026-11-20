@@ -335,7 +335,21 @@
                 </Grid>
             </TabItem>
 
-            <!-- TAB 2: Indexing Dashboard & Root Management -->
+            <!-- TAB 2: Phase 4 local visual search -->
+            <TabItem Header="  🖼 Visual Search  " FontSize="13" FontWeight="SemiBold" Padding="14,8">
+                <Grid Margin="18">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock Text="Local Visual Search" FontSize="20" FontWeight="Bold" Foreground="#172B4D" />
+                    <TextBlock Grid.Row="1" Text="General visual similarity only. No face identification or cloud upload." Margin="0,4,0,12" Foreground="#5E6C84" />
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="330"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="#F4F5F7" CornerRadius="6" Padding="14"><StackPanel><TextBlock Text="Reference image" FontWeight="Bold" Foreground="#172B4D" /><TextBox Text="{Binding VisualSearch.ReferencePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,8" IsReadOnly="True" /><StackPanel Orientation="Horizontal"><Button Content="Upload" Command="{Binding VisualSearch.UploadReferenceCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,6,0" /><Button Content="Paste" IsEnabled="False" Style="{StaticResource ActionButton}" ToolTip="Clipboard image support is reserved for the next UI iteration." /></StackPanel><TextBlock Text="Region selection" FontWeight="Bold" Margin="0,18,0,4" Foreground="#172B4D" /><TextBlock Text="Normalized region coordinates are supported by the domain model. Drag handles require a preview surface and remain disabled in this slice." TextWrapping="Wrap" Foreground="#5E6C84" /><Button Content="Clear selection / use whole image" Command="{Binding VisualSearch.ClearSelectionCommand}" Style="{StaticResource ActionButton}" Margin="0,8,0,0" /><TextBlock Text="Similarity threshold" FontWeight="Bold" Margin="0,18,0,4" Foreground="#172B4D" /><Slider Minimum="0" Maximum="1" Value="{Binding VisualSearch.Threshold}" TickFrequency="0.05" IsSnapToTickEnabled="True" /><TextBlock Text="{Binding VisualSearch.Threshold, StringFormat=Threshold: {0:F2}}" Foreground="#5E6C84" /><TextBlock Text="Result limit" FontWeight="Bold" Margin="0,12,0,4" Foreground="#172B4D" /><ComboBox ItemsSource="{Binding VisualSearch.Limits}" SelectedItem="{Binding VisualSearch.Limit}" /><Button Content="Index approved images" Command="{Binding VisualSearch.IndexImagesCommand}" Style="{StaticResource ActionButton}" Margin="0,16,0,0" /><Button Content="Search similar images" Command="{Binding VisualSearch.SearchCommand}" Style="{StaticResource SuccessButton}" Margin="0,6,0,0" /><Button Content="Clear" Command="{Binding VisualSearch.ClearReferenceCommand}" Style="{StaticResource ActionButton}" Margin="0,6,0,0" /><TextBlock Text="{Binding VisualSearch.Status}" TextWrapping="Wrap" Margin="0,14,0,0" Foreground="#0052CC" /></StackPanel></Border>
+                        <Border Grid.Column="2" BorderBrush="#DFE1E6" BorderThickness="1" CornerRadius="6" Padding="12"><DockPanel><TextBlock DockPanel.Dock="Top" Text="Similarity results" FontSize="15" FontWeight="Bold" Foreground="#172B4D" Margin="0,0,0,8" /><ListBox ItemsSource="{Binding VisualSearch.Results}"><ListBox.ItemTemplate><DataTemplate><Border BorderBrush="#EBECF0" BorderThickness="0,0,0,1" Padding="6"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="120"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/><TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="#5E6C84" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Dimensions}" FontSize="11" Foreground="#5E6C84"/></StackPanel><TextBlock Grid.Column="1" Text="{Binding MatchType}" VerticalAlignment="Center" Foreground="#0052CC"/><TextBlock Grid.Column="2" Text="{Binding Similarity}" VerticalAlignment="Center" FontWeight="Bold"/></Grid></Border></DataTemplate></ListBox.ItemTemplate></ListBox></DockPanel></Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 3: Indexing Dashboard & Root Management -->
             <TabItem Header="  ⚙ Indexing &amp; Roots Management  " FontSize="13" FontWeight="SemiBold" Padding="14,8">
                 <Grid Margin="0,12,0,0">
                     <Grid.ColumnDefinitions>
@@ -481,11 +495,24 @@
 
                                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,10">
                                     <Button Content="▶ Extract Document Text" Style="{StaticResource SuccessButton}" Command="{Binding StartExtractionCommand}" ToolTip="Extract text &amp; chunks from discovered PDF, DOCX, XLSX, PPTX, TXT, CSV, JSON, XML, HTML, and code files" />
-                                    <Button Content="📷 Run OCR (Images &amp; Scans)" Style="{StaticResource PrimaryButton}" Command="{Binding StartOcrCommand}" ToolTip="Perform Arabic &amp; English OCR on scanned PDFs and images" />
                                     <Button Content="⏹ Cancel Extraction" Style="{StaticResource DangerButton}" Command="{Binding CancelExtractionCommand}" />
+                                    <Button Content="📷 Run OCR (Images &amp; Scans)" Style="{StaticResource PrimaryButton}" Command="{Binding StartOcrCommand}" ToolTip="Perform Arabic &amp; English OCR on scanned PDFs and images" />
+                                    <Button Content="⏹ Cancel OCR" Style="{StaticResource DangerButton}" Command="{Binding CancelOcrCommand}" />
                                 </WrapPanel>
 
-                                <ProgressBar Height="8" Value="{Binding ExtractionProgressPercent}" Minimum="0" Maximum="100" Margin="0,0,0,8" Background="#EBECF0" Foreground="#00875A" />
+                                <!-- Text extraction status & progress -->
+                                <DockPanel Margin="0,0,0,4" Visibility="{Binding IsExtracting, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="{Binding ExtractionStatusText}" FontSize="11" Foreground="#006644" FontWeight="SemiBold" />
+                                </DockPanel>
+                                <ProgressBar Height="8" Value="{Binding ExtractionProgressPercent}" Minimum="0" Maximum="100" Margin="0,0,0,8" Background="#EBECF0" Foreground="#00875A"
+                                             Visibility="{Binding IsExtracting, Converter={StaticResource BoolToVis}}" />
+
+                                <!-- OCR status & progress -->
+                                <DockPanel Margin="0,0,0,4">
+                                    <TextBlock Text="{Binding OcrStatusText}" FontSize="11" Foreground="#0052CC" FontWeight="SemiBold" />
+                                </DockPanel>
+                                <ProgressBar Height="8" Value="{Binding OcrProgressPercent}" Minimum="0" Maximum="100" Margin="0,0,0,8" Background="#EBECF0" Foreground="#0052CC"
+                                             Visibility="{Binding IsOcrRunning, Converter={StaticResource BoolToVis}}" />
 
                                 <!-- Extraction KPI Statistics -->
                                 <UniformGrid Columns="4" Margin="0,0,0,6">

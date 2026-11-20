@@ -39,22 +39,59 @@ public sealed class OcrWorkerClient : IDisposable
 
     private static string ResolvePythonPath()
     {
-        // 1. Check local virtual environment in src/ai-worker/.venv
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        var relativeVenv = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "src", "ai-worker", ".venv", "Scripts", "python.exe"));
-        if (File.Exists(relativeVenv)) return relativeVenv;
+        // 1. Walk up directories to find src/ai-worker/.venv
+        var current = AppDomain.CurrentDomain.BaseDirectory;
+        while (!string.IsNullOrEmpty(current))
+        {
+            var candidate = Path.Combine(current, "src", "ai-worker", ".venv", "Scripts", "python.exe");
+            if (File.Exists(candidate)) return candidate;
+            var parent = Directory.GetParent(current);
+            if (parent == null) break;
+            current = parent.FullName;
+        }
 
-        // 2. Fall back to standard python on PATH
+        // Direct check in repository root if available
+        if (File.Exists(@"D:\FileLens\src\ai-worker\.venv\Scripts\python.exe"))
+            return @"D:\FileLens\src\ai-worker\.venv\Scripts\python.exe";
+
+        var localAppPython = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs", "Python", "Python312", "python.exe");
+        if (File.Exists(localAppPython)) return localAppPython;
+
         return "python";
     }
 
     private static string ResolveWorkerScriptPath()
     {
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        var relativeScript = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "src", "ai-worker", "worker.py"));
-        if (File.Exists(relativeScript)) return relativeScript;
+        var current = AppDomain.CurrentDomain.BaseDirectory;
+        while (!string.IsNullOrEmpty(current))
+        {
+            var candidate = Path.Combine(current, "src", "ai-worker", "worker.py");
+            if (File.Exists(candidate)) return candidate;
+            var parent = Directory.GetParent(current);
+            if (parent == null) break;
+            current = parent.FullName;
+        }
 
-        return Path.Combine(baseDir, "ai-worker", "worker.py");
+        if (File.Exists(@"D:\FileLens\src\ai-worker\worker.py"))
+            return @"D:\FileLens\src\ai-worker\worker.py";
+
+        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ai-worker", "worker.py");
+    }
+
+    public Task<JsonElement?> PingAsync(CancellationToken cancellationToken = default)
+    {
+        return SendCommandAsync(new { command = "ping", id = Guid.NewGuid().ToString("N") }, TimeSpan.FromSeconds(10), cancellationToken);
+    }
+
+    public Task<JsonElement?> HealthAsync(CancellationToken cancellationToken = default)
+    {
+        return SendCommandAsync(new { command = "health", id = Guid.NewGuid().ToString("N") }, TimeSpan.FromSeconds(10), cancellationToken);
+    }
+
+    public Task<JsonElement?> ShutdownAsync(CancellationToken cancellationToken = default)
+    {
+        return SendCommandAsync(new { command = "shutdown", id = Guid.NewGuid().ToString("N") }, TimeSpan.FromSeconds(5), cancellationToken);
     }
 
     public async Task<bool> EnsureWorkerStartedAsync(CancellationToken cancellationToken = default)

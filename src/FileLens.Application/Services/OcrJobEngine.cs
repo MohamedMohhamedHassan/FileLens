@@ -26,6 +26,8 @@ public sealed class OcrJobEngine : IOcrJobEngine
     public int FailedCount { get; private set; }
 
     public event EventHandler<OcrStatistics>? StatisticsUpdated;
+    public event EventHandler<OcrJobProgress>? ProgressChanged;
+    public event EventHandler<string>? LogMessage;
 
     public OcrJobEngine(
         IIndexDatabase database,
@@ -66,8 +68,20 @@ public sealed class OcrJobEngine : IOcrJobEngine
 
         try
         {
+            LogMessage?.Invoke(this, "[OCR] Starting OCR scan. Checking queued images and scanned documents...");
             var files = await _database.GetFilesAwaitingOcrAsync(1000, cancellationToken);
             _logger.LogInformation("Found {Count} image/scanned files awaiting OCR.", files.Count);
+
+            if (files.Count == 0)
+            {
+                LogMessage?.Invoke(this, "[OCR] No new images or scanned documents awaiting OCR.");
+                ProgressChanged?.Invoke(this, new OcrJobProgress(0, 0, null));
+                return;
+            }
+
+            LogMessage?.Invoke(this, $"[OCR] Found {files.Count} files awaiting OCR. Beginning recognition...");
+            int total = files.Count;
+            int current = 0;
 
             foreach (var file in files)
             {
@@ -77,6 +91,10 @@ public sealed class OcrJobEngine : IOcrJobEngine
                 {
                     await Task.Delay(200, cancellationToken);
                 }
+
+                current++;
+                ProgressChanged?.Invoke(this, new OcrJobProgress(current, total, file.FullPath));
+                LogMessage?.Invoke(this, $"[OCR] ({current}/{total}) Processing: {file.FileName}");
 
                 if (!File.Exists(file.FullPath))
                 {
@@ -181,10 +199,13 @@ public sealed class OcrJobEngine : IOcrJobEngine
 
             var finalStats = await _database.GetOcrStatisticsAsync(cancellationToken);
             StatisticsUpdated?.Invoke(this, finalStats);
+            ProgressChanged?.Invoke(this, new OcrJobProgress(total, total, null));
+            LogMessage?.Invoke(this, $"[OCR] Finished. {ProcessedCount} processed, {FailedCount} skipped/failed.");
             _logger.LogInformation("OCR pipeline completed. Processed: {P}, Failed: {F}", ProcessedCount, FailedCount);
         }
         catch (OperationCanceledException)
         {
+            LogMessage?.Invoke(this, "[OCR] Operation cancelled by user.");
             _logger.LogInformation("OCR pipeline was cancelled.");
         }
         catch (Exception ex)

@@ -13,6 +13,8 @@ public interface IOcrJobEngine
     int FailedCount { get; }
 
     event EventHandler<OcrStatistics>? StatisticsUpdated;
+    event EventHandler<OcrJobProgress>? ProgressChanged;
+    event EventHandler<string>? LogMessage;
 
     Task RunOcrPipelineAsync(CancellationToken cancellationToken = default);
     Task StartAsync(CancellationToken cancellationToken = default);

@@ -32,6 +32,17 @@ public sealed class JsonDocumentExtractor : BaseDocumentExtractor
             return await ExtractJsonLinesAsync(file, cancellationToken).ConfigureAwait(false);
         }
 
+        if (fileInfo.Length == 0)
+        {
+            return ExtractedDocument.CreateSuccess(
+                file.Id.Value,
+                file.FullPath,
+                ExtractorId,
+                string.Empty,
+                string.Empty,
+                Array.Empty<DocumentChunk>());
+        }
+
         using var stream = new FileStream(file.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var options = new JsonDocumentOptions
         {

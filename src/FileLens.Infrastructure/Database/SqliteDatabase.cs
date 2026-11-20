@@ -107,8 +107,34 @@ public sealed class SqliteDatabase : IIndexDatabase
             }
         }
 
+        if (currentVersion < Migration004_VisualSearch.Version)
+        {
+            _logger.LogInformation("Applying Migration {Version}: {Description}", Migration004_VisualSearch.Version, Migration004_VisualSearch.Description);
+            await Migration004_VisualSearch.ApplyAsync(connection, transaction, cancellationToken);
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = transaction;
+            cmd.CommandText = "INSERT INTO SchemaMigrations (Version, Description, AppliedAtUtc) VALUES ($v, $desc, $applied);";
+            cmd.Parameters.AddWithValue("$v", Migration004_VisualSearch.Version);
+            cmd.Parameters.AddWithValue("$desc", Migration004_VisualSearch.Description);
+            cmd.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("o"));
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (currentVersion < Migration005_SemanticVisualEmbeddingMetadata.Version)
+        {
+            _logger.LogInformation("Applying Migration {Version}: {Description}", Migration005_SemanticVisualEmbeddingMetadata.Version, Migration005_SemanticVisualEmbeddingMetadata.Description);
+            await Migration005_SemanticVisualEmbeddingMetadata.ApplyAsync(connection, transaction, cancellationToken);
+            using var cmd = connection.CreateCommand();
+            cmd.Transaction = transaction;
+            cmd.CommandText = "INSERT INTO SchemaMigrations (Version, Description, AppliedAtUtc) VALUES ($v, $desc, $applied);";
+            cmd.Parameters.AddWithValue("$v", Migration005_SemanticVisualEmbeddingMetadata.Version);
+            cmd.Parameters.AddWithValue("$desc", Migration005_SemanticVisualEmbeddingMetadata.Description);
+            cmd.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("o"));
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
-        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Math.Max(currentVersion, Migration003_OcrTextSearch.Version));
+        _logger.LogInformation("Database initialization complete. Current schema version: {Version}", Migration005_SemanticVisualEmbeddingMetadata.Version);
     }
 
     public async Task<IReadOnlyList<SearchRoot>> GetAllRootsAsync(CancellationToken cancellationToken = default)
@@ -391,6 +417,19 @@ public sealed class SqliteDatabase : IIndexDatabase
     public async Task LogErrorAsync(IndexErrorRecord error, CancellationToken cancellationToken = default)
     {
         await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+
+        // Ensure parent job exists to prevent foreign key constraint violation
+        using (var ensureJobCmd = connection.CreateCommand())
+        {
+            ensureJobCmd.CommandText = @"
+                INSERT OR IGNORE INTO IndexJobs (Id, RootId, JobType, Status, StartedAtUtc, CompletedAtUtc, ErrorMessage)
+                VALUES ($jobId, $rootId, 1, 2, $started, $started, 'SystemJob');";
+            ensureJobCmd.Parameters.AddWithValue("$jobId", error.JobId.ToString());
+            ensureJobCmd.Parameters.AddWithValue("$rootId", error.RootId.Value.ToString());
+            ensureJobCmd.Parameters.AddWithValue("$started", DateTime.UtcNow.ToString("o"));
+            await ensureJobCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             INSERT INTO IndexErrors (Id, JobId, RootId, FilePath, ErrorCategory, Message, LoggedAtUtc)
@@ -1275,6 +1314,84 @@ public sealed class SqliteDatabase : IIndexDatabase
             files.Add(ReadIndexedFile(reader));
         }
         return files;
+    }
+
+    public async Task UpsertVisualAssetAsync(VisualAsset asset, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"INSERT INTO VisualAssets
+            (Id,FileId,FullPath,Extension,Width,Height,SizeBytes,ContentHash,PerceptualHash,IndexedAtUtc,Status)
+            VALUES ($id,$file,$path,$ext,$w,$h,$size,$hash,$phash,$at,$status)
+            ON CONFLICT(FileId) DO UPDATE SET Id=excluded.Id,FullPath=excluded.FullPath,Extension=excluded.Extension,
+            Width=excluded.Width,Height=excluded.Height,SizeBytes=excluded.SizeBytes,ContentHash=excluded.ContentHash,
+            PerceptualHash=excluded.PerceptualHash,IndexedAtUtc=excluded.IndexedAtUtc,Status=excluded.Status;";
+        cmd.Parameters.AddWithValue("$id", asset.Id.ToString());
+        cmd.Parameters.AddWithValue("$file", asset.FileId.ToString());
+        cmd.Parameters.AddWithValue("$path", asset.FullPath);
+        cmd.Parameters.AddWithValue("$ext", asset.Extension);
+        cmd.Parameters.AddWithValue("$w", asset.Width);
+        cmd.Parameters.AddWithValue("$h", asset.Height);
+        cmd.Parameters.AddWithValue("$size", asset.SizeBytes);
+        cmd.Parameters.AddWithValue("$hash", asset.ContentHash);
+        cmd.Parameters.AddWithValue("$phash", asset.PerceptualHash);
+        cmd.Parameters.AddWithValue("$at", asset.IndexedAtUtc.ToString("o"));
+        cmd.Parameters.AddWithValue("$status", asset.Status);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpsertVisualEmbeddingAsync(VisualEmbedding embedding, CancellationToken cancellationToken = default)
+    {
+        var bytes = new byte[embedding.Vector.Length * sizeof(float)];
+        Buffer.BlockCopy(embedding.Vector, 0, bytes, 0, bytes.Length);
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"INSERT INTO VisualEmbeddings (AssetId,ModelName,ModelVersion,Dimension,Vector,CreatedAtUtc,ProviderName,ModelRevision,Preprocessing)
+            VALUES ($id,$name,$version,$dimension,$vector,$created,$provider,$revision,$preprocessing)
+            ON CONFLICT(AssetId) DO UPDATE SET ModelName=excluded.ModelName,ModelVersion=excluded.ModelVersion,
+            Dimension=excluded.Dimension,Vector=excluded.Vector,CreatedAtUtc=excluded.CreatedAtUtc,
+            ProviderName=excluded.ProviderName,ModelRevision=excluded.ModelRevision,Preprocessing=excluded.Preprocessing;";
+        cmd.Parameters.AddWithValue("$id", embedding.AssetId.ToString());
+        cmd.Parameters.AddWithValue("$name", embedding.ModelName);
+        cmd.Parameters.AddWithValue("$version", embedding.ModelVersion);
+        cmd.Parameters.AddWithValue("$dimension", embedding.Vector.Length);
+        cmd.Parameters.Add("$vector", SqliteType.Blob).Value = bytes;
+        cmd.Parameters.AddWithValue("$created", embedding.CreatedAtUtc.ToString("o"));
+        cmd.Parameters.AddWithValue("$provider", embedding.ProviderName);
+        cmd.Parameters.AddWithValue("$revision", embedding.ModelRevision);
+        cmd.Parameters.AddWithValue("$preprocessing", embedding.Preprocessing);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<(VisualAsset Asset, VisualEmbedding Embedding)>> GetVisualEmbeddingsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"SELECT a.Id,a.FileId,a.FullPath,a.Extension,a.Width,a.Height,a.SizeBytes,a.ContentHash,
+            a.PerceptualHash,a.IndexedAtUtc,a.Status,e.ModelName,e.ModelVersion,e.Vector,e.CreatedAtUtc,e.ProviderName,e.ModelRevision,e.Preprocessing,e.Dimension
+            FROM VisualAssets a INNER JOIN VisualEmbeddings e ON e.AssetId=a.Id
+            INNER JOIN IndexedFiles f ON f.Id=a.FileId WHERE f.Status IN (0,1);";
+        var result = new List<(VisualAsset, VisualEmbedding)>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var asset = new VisualAsset(Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt32(5), reader.GetInt64(6), reader.GetString(7), reader.GetString(8), DateTime.Parse(reader.GetString(9), null, DateTimeStyles.RoundtripKind), reader.GetString(10));
+            var bytes = (byte[])reader[13];
+            var vector = new float[bytes.Length / sizeof(float)];
+            Buffer.BlockCopy(bytes, 0, vector, 0, bytes.Length);
+            var embedding = new VisualEmbedding(asset.Id, reader.GetString(11), reader.GetString(12), vector, DateTime.Parse(reader.GetString(14), null, DateTimeStyles.RoundtripKind), reader.GetString(15), reader.GetString(16), reader.GetString(17));
+            result.Add((asset, embedding));
+        }
+        return result;
+    }
+
+    public async Task RemoveVisualAssetAsync(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken);
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM VisualAssets WHERE FileId = $file;";
+        cmd.Parameters.AddWithValue("$file", fileId.ToString());
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 }
 

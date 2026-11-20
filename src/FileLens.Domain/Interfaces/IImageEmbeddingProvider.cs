@@ -1,3 +1,5 @@
+using FileLens.Domain.Models;
+
 namespace FileLens.Domain.Interfaces;
 
 /// <summary>
@@ -5,5 +7,12 @@ namespace FileLens.Domain.Interfaces;
 /// </summary>
 public interface IImageEmbeddingProvider
 {
+    string ProviderName { get; }
+    string ModelName { get; }
+    string ModelVersion { get; }
+    string ModelRevision { get; }
+    string Preprocessing { get; }
+    int Dimension { get; }
+    Task<VisualImageDescriptor> CreateEmbeddingAsync(byte[] imageBytes, CancellationToken cancellationToken = default);
 }
 

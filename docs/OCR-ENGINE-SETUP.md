@@ -1,103 +1,39 @@
-# FileLens OCR Engine Setup & Installation Guide
+# FileLens OCR Engine Setup
 
-This document describes the environment preparation, engine evaluation, dependencies, licensing, and installation procedure for FileLens Phase 3 (Arabic and English OCR Engine).
+Phase 3 uses a local Python worker over JSON-lines IPC. Source files remain read-only; model files and generated data belong in the user/application cache.
 
-## 1. System Evaluation & Requirements
+## Verified environment (2026-11-18)
 
-- **Operating System:** Windows 10 / Windows 11 (64-bit)
-- **Runtime:** .NET 10 LTS (`net10.0-windows`)
-- **Worker Process:** Python 3.10 – 3.12 (64-bit)
-- **Local Storage:** ~1.2 GB for Python venv, dependencies, and offline model weights
-- **Memory (RAM):** Minimum 4 GB free physical memory; 8 GB recommended for multi-page PDF rendering
-- **Hardware Acceleration:**
-  - **CPU Inference (Default):** Multi-threaded CPU execution with AVX2 instruction set (via OpenVINO / ONNX / OneDNN)
-  - **GPU Inference (Optional):** NVIDIA CUDA 11.8+ / 12.x for accelerated batch OCR
+- Windows 11 x64; Python 3.12.10 x64 at `C:\Users\PC\AppData\Local\Programs\Python\Python312\python.exe`.
+- Python Launcher is installed, but `py -3.12` currently reports no registered installation; the setup script therefore prefers the explicit executable.
+- Isolated venv: `src/ai-worker/.venv`.
+- PaddlePaddle 3.3.1 CPU; PaddleOCR 3.7.0; PaddleX 3.7.2.
+- OpenCV 4.9.0.80 and pypdfium2 4.30.0.
+- `paddle.utils.run_check()` passed: PaddlePaddle works on one CPU.
 
----
+## Repeatable setup
 
-## 2. Comparative Engine Evaluation
-
-| Criterion | Primary: PaddleOCR 3.x | Alternative: Tesseract 5.x (LSTM) |
-|---|---|---|
-| **Arabic Recognition** | **Superior**: State-of-the-art DBNet + SVTR/CRNN handles complex Arabic ligatures, diacritics, and Naskh/Kufi fonts. | **Moderate**: LSTM `ara.traineddata` struggles with low-contrast, rotated, or stylized Arabic fonts. |
-| **English Recognition** | **Excellent**: High accuracy across printed, scanned, and digital screenshot text. | **Excellent**: Mature, fast on standard Latin document typography. |
-| **Bilingual Mixed Text** | **Native**: Handles mixed RTL (Arabic) and LTR (English) sentences and numbers in one line. | **Requires configuration**: Needs `-l ara+eng` and often confuses word ordering on mixed lines. |
-| **Bounding Box Precision** | Word and line-level polygon and bounding box detection with individual confidence scores. | Line, word, and character-level hOCR / TSV output with confidences. |
-| **License** | Apache 2.0 (Commercial and open-source friendly). | Apache 2.0. |
-| **Inference Footprint** | ~150 MB model weights (Mobile slim models); ~250 MB peak memory. | ~25 MB traineddata files; ~80 MB peak memory. |
-| **Offline Execution** | 100% offline local inference; models stored in application cache directory. | 100% offline local inference. |
-
-### Decision
-- **Primary Engine:** PaddleOCR 3.x (multilingual Arabic + English model weights).
-- **Secondary / Fallback Engine:** Tesseract 5.x with `ara.traineddata` + `eng.traineddata`.
-- **Development & CI Mode:** Built-in deterministic mock/fallback engine ensuring 100% pass rate in headless environments without pre-installed Python.
-
----
-
-## 3. Python Worker Dependencies (`pyproject.toml` / `requirements.txt`)
-
-Pinned, reproducible versions:
-
-```text
-# Core Worker Runtime
-numpy==1.26.4
-Pillow==10.3.0
-pydantic==2.7.1
-
-# PaddleOCR & Framework (Primary)
-paddlepaddle==2.6.1; sys_platform == 'win32'
-paddleocr>=2.7.3
-
-# Tesseract Alternative
-pytesseract==0.3.10
-
-# Image Preprocessing & PDF Page Rendering
-opencv-python-headless==4.9.0.80
-pypdfium2==4.30.0
-```
-
-### Licenses
-- `PaddleOCR`: Apache License 2.0
-- `Pillow`: HPND License (Permissive)
-- `OpenCV`: Apache License 2.0
-- `pypdfium2`: Apache License 2.0 / BSD-3-Clause (PDFium)
-- `Tesseract`: Apache License 2.0
-
----
-
-## 4. Setup Procedure
-
-### Automated Setup (PowerShell)
-Run the automated bootstrap script:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-ai-worker.ps1
 ```
 
-### Manual Setup
-1. Ensure Python 3.10 – 3.12 is installed and on the system PATH.
-2. Create virtual environment:
-   ```powershell
-   python -m venv src/ai-worker/.venv
-   ```
-3. Activate virtual environment:
-   ```powershell
-   .\src\ai-worker\.venv\Scripts\Activate.ps1
-   ```
-4. Upgrade pip and install pinned packages:
-   ```powershell
-   python -m pip install --upgrade pip
-   pip install -r src/ai-worker/requirements.txt
-   ```
-5. Test worker communication:
-   ```powershell
-   python src/ai-worker/worker.py --test
-   ```
+The script locates CPython 3.12 x64 by explicit path, Launcher, or a non-Store PATH entry; creates `src/ai-worker/.venv`; installs only the exact versions in `requirements.txt`; and validates PaddlePaddle, PaddleOCR, OpenCV, pypdfium2, and the CPU runtime. It is safe to rerun and does not install packages globally or silently upgrade unrelated packages.
 
----
+## Models actually resolved
 
-## 5. Security & Isolation Controls
-- **Process Isolation:** The worker runs as an unprivileged child process communicating strictly over `stdin`/`stdout`.
-- **Zero Cloud Leakage:** All inference runs on the local CPU/GPU; network requests are explicitly blocked.
-- **Input Sanitization:** Filenames and paths are passed via JSON messages, never interpolated into shell command strings.
-- **Resource Constraints:** Enforces max image dimensions ($8192 \times 8192$), max PDF page limits, and worker timeout (default 30 seconds per page).
+| Language | Detection | Recognition | Result |
+|---|---|---|---|
+| Arabic (`ar`) | `PP-OCRv5_server_det` | `arabic_PP-OCRv5_mobile_rec` | Verified and cached |
+| English (`en`) | `PP-OCRv6_medium_det` | `PP-OCRv6_medium_rec` | Verified and cached as PaddleOCR 3.7 default |
 
+The official PaddleOCR 3.x model table identifies `arabic_PP-OCRv5_mobile_rec` as supporting Arabic and English, and lists `en_PP-OCRv5_mobile_rec` as the English PP-OCRv5 candidate. The current worker deliberately reports the model resolved by the installed pipeline. The explicit English PP-OCRv5 weight was not claimed as verified because its local PaddleX cache download was blocked by a Windows cache-lock permission error.
+
+Model code/repository licensing is Apache-2.0. Before redistributing downloaded weights in an installer, retain upstream model notices and perform a separate model-weight redistribution review.
+
+## Offline operation
+
+The verified model directories are present under `C:\Users\PC\.paddlex\official_models`. With `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True`, the worker loads cached weights and performs local CPU inference. This verifies cache-only startup; a full machine-wide network-disconnect test was not performed because changing Windows firewall state requires explicit administrative approval.
+
+## Fallback policy
+
+Fallback/mock engines remain available for deterministic tests and environments without the venv. They are never reported as successful production PaddleOCR: the worker health response includes `production_engine=false`, and the .NET health check reports the worker unhealthy for production when fallback is active.

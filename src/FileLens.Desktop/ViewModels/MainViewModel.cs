@@ -53,6 +53,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Phase 3 - OCR Controls
     private readonly IOcrJobEngine? _ocrJobEngine;
     private string _ocrStatusText = "OCR: Ready";
+    private bool _isOcrRunning;
+    private double _ocrProgressPercent;
+    private CancellationTokenSource? _ocrCts;
 
     // Phase 2 - Search & Preview
     private string _searchText = string.Empty;
@@ -244,6 +247,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { _ocrStatusText = value; OnPropertyChanged(); }
     }
 
+    public bool IsOcrRunning
+    {
+        get => _isOcrRunning;
+        set { _isOcrRunning = value; OnPropertyChanged(); }
+    }
+
+    public double OcrProgressPercent
+    {
+        get => _ocrProgressPercent;
+        set { _ocrProgressPercent = value; OnPropertyChanged(); }
+    }
+
     // Properties - Search & Preview
     public string SearchText
     {
@@ -329,6 +344,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand StartExtractionCommand { get; }
     public ICommand CancelExtractionCommand { get; }
     public ICommand StartOcrCommand { get; }
+    public ICommand CancelOcrCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand ClearSearchCommand { get; }
     public ICommand OpenSelectedFileCommand { get; }
@@ -378,6 +394,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _extractionEngine.LogMessage += OnLogMessage;
         }
 
+        if (_ocrJobEngine != null)
+        {
+            _ocrJobEngine.ProgressChanged += OnOcrProgress;
+            _ocrJobEngine.LogMessage += OnLogMessage;
+        }
+
         BrowseFolderCommand = new RelayCommand(ExecuteBrowseFolder);
         AddLocationCommand = new RelayCommand(async () => await ExecuteAddLocationAsync());
         RemoveLocationCommand = new RelayCommand(async () => await ExecuteRemoveLocationAsync(), () => SelectedRoot != null);
@@ -391,7 +413,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         StartExtractionCommand = new RelayCommand(async () => await ExecuteStartExtractionAsync(), () => !IsExtracting && _extractionEngine != null);
         CancelExtractionCommand = new RelayCommand(() => _extractionEngine?.Cancel(), () => IsExtracting && _extractionEngine != null);
-        StartOcrCommand = new RelayCommand(async () => await ExecuteStartOcrAsync(), () => _ocrJobEngine != null && !_ocrJobEngine.IsRunning);
+        StartOcrCommand = new RelayCommand(async () => await ExecuteStartOcrAsync(), () => !IsOcrRunning && _ocrJobEngine != null);
+        CancelOcrCommand = new RelayCommand(ExecuteCancelOcr, () => IsOcrRunning && _ocrJobEngine != null);
         SearchCommand = new RelayCommand(async () => await ExecuteSearchAsync(), () => _searchService != null);
         ClearSearchCommand = new RelayCommand(ExecuteClearSearch);
 
@@ -514,13 +537,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task ExecuteStartOcrAsync()
     {
         if (_ocrJobEngine == null) return;
-        OcrStatusText = "OCR: Running...";
+        IsOcrRunning = true;
+        OcrStatusText = "OCR: Starting...";
+        OcrProgressPercent = 0;
+        _ocrCts = new CancellationTokenSource();
         CommandManager.InvalidateRequerySuggested();
 
         try
         {
-            await _ocrJobEngine.RunOcrPipelineAsync();
+            await _ocrJobEngine.RunOcrPipelineAsync(_ocrCts.Token);
             OcrStatusText = $"OCR: Completed ({_ocrJobEngine.ProcessedCount} processed, {_ocrJobEngine.FailedCount} failed)";
+            await RefreshStatisticsAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            OcrStatusText = "OCR: Cancelled by user";
         }
         catch (Exception ex)
         {
@@ -528,8 +559,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         finally
         {
+            IsOcrRunning = false;
             CommandManager.InvalidateRequerySuggested();
         }
+    }
+
+    private void ExecuteCancelOcr()
+    {
+        _ocrCts?.Cancel();
+        _ocrJobEngine?.Cancel();
+        OcrStatusText = "OCR: Cancelling...";
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private async Task ExecuteSearchAsync()
@@ -764,6 +804,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
             FailedExtractions = progress.FailedCount;
             UnsupportedFormats = progress.SkippedCount;
 
+            CommandManager.InvalidateRequerySuggested();
+        });
+    }
+
+    private void OnOcrProgress(object? sender, OcrJobProgress progress)
+    {
+        _dispatcher.Invoke(() =>
+        {
+            if (progress.TotalFiles > 0)
+            {
+                OcrProgressPercent = Math.Min(100.0, (double)progress.ProcessedFiles / progress.TotalFiles * 100.0);
+                OcrStatusText = !string.IsNullOrEmpty(progress.CurrentFile)
+                    ? $"OCR: {progress.ProcessedFiles}/{progress.TotalFiles} ({OcrProgressPercent:F0}%) — {Path.GetFileName(progress.CurrentFile)}"
+                    : $"OCR: {progress.ProcessedFiles}/{progress.TotalFiles} Completed";
+            }
+            else
+            {
+                OcrProgressPercent = 0;
+                OcrStatusText = "OCR: No files queued";
+            }
             CommandManager.InvalidateRequerySuggested();
         });
     }

@@ -115,7 +115,33 @@ public sealed class LocalOcrService : IOcrService
             
             if (isScanned || pageCount == 1)
             {
-                var pageRes = await _engine.ExtractTextFromBytesAsync(pdfBytes, pageOptions, cancellationToken);
+                OcrResult pageRes;
+                if (_workerClient.IsWorkerAvailable)
+                {
+                    var req = new
+                    {
+                        command = "ocr_pdf_page",
+                        id = Guid.NewGuid().ToString("N"),
+                        pdf_path = pdfPath,
+                        page_number = p,
+                        language = options.LanguageHint
+                    };
+
+                    var resp = await _workerClient.SendCommandAsync(req, options.Timeout, cancellationToken);
+                    if (resp.HasValue && resp.Value.TryGetProperty("result", out var resultProp))
+                    {
+                        pageRes = ParseWorkerOcrResult(resultProp, p);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("PaddleOCR worker returned no result for PDF page {Page}; using local fallback.", p);
+                        pageRes = await _engine.ExtractTextFromBytesAsync(pdfBytes, pageOptions, cancellationToken);
+                    }
+                }
+                else
+                {
+                    pageRes = await _engine.ExtractTextFromBytesAsync(pdfBytes, pageOptions, cancellationToken);
+                }
                 results.Add(pageRes with { PageNumber = p });
             }
         }

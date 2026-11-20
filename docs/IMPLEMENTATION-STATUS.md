@@ -1,15 +1,25 @@
 # Implementation status
 
-- Last updated: 2026-11-14
-- Current phase: 3 — Arabic and English OCR Engine
-- Overall state: Phase 3 Complete — Ready for Review / Phase 4
+- Last updated: 2026-11-19
+- Current phase: 4 — AI Visual Search and Region Selection
+- Overall state: Phase 4 foundation plus SigLIP2 provider/worker integration and initial semantic IPC verification complete; corpus benchmarks and remaining UI work are pending
 
 ## Verified environment
 - Windows version/build: Microsoft Windows NT 10.0.26300.0 (Windows 11)
 - .NET SDKs: 10.0.204 [C:\Program Files\dotnet\sdk] (LTS)
-- Python worker: `src/ai-worker/` architecture with PaddleOCR 3.x, Tesseract 5.x adapters, and fallback engine
+- Python 3.12.10 x64: `C:\Users\PC\AppData\Local\Programs\Python\Python312\python.exe`
+- Python venv: `D:\FileLens\src\ai-worker\.venv`
+- PaddlePaddle: 3.3.1 (CPU, Windows x64)
+- PaddleOCR: 3.7.0 (PP-OCRv5 architecture)
+- Detection model: `PP-OCRv5_server_det` (Apache-2.0)
+- Arabic recognition: `arabic_PP-OCRv5_mobile_rec` (Apache-2.0)
+- English detection: `PP-OCRv6_medium_det` (PaddleOCR 3.7 default, verified cached)
+- English recognition: `PP-OCRv6_medium_rec` (PaddleOCR 3.7 default, verified cached)
+- Official PP-OCRv5 English candidate: `en_PP-OCRv5_mobile_rec`; not active because local model-cache resolution was blocked by a Windows lock permission error.
 - Git version: git version 2.53.0.windows.1
 - Shell: PowerShell on Windows
+- SigLIP2 AI venv: `D:\FileLens-AI\python\venv` (PyTorch 2.7.1+cpu, Transformers 4.51.3, Safetensors 0.5.3)
+- SigLIP2 model: `google/siglip2-base-patch16-224`, revision `0ad8c6e0ff16615356a08a1ad8c8bbc8930c434e`, SHA256 verified, 768-dimensional CPU inference verified
 
 ## Phase gates
 | Phase | State | Evidence / build / tests | Blockers |
@@ -17,8 +27,8 @@
 | 0 — Bootstrap | Complete | Solution built in Release (`0 Warning(s), 0 Error(s)`); 19 tests passed; 8 ADRs accepted | None |
 | 1 — Metadata indexing | Complete & Verified (8/8) | Release build clean; 61 automated tests passed (50 unit + 11 integration); 8/8 final verification checklist items passed; 10k files benchmark at 2,205 files/sec | None |
 | 2 — Text search and previews | Complete & Verified | Release build clean; 85 automated tests passed (70 unit + 15 integration); All 10 format extractors, SQLite FTS5 with bilingual Arabic/English search, Document Previews & Two-tab UI complete | None |
-| 3 — OCR + Arabic/English | Complete & Verified | Release build clean; 99 automated tests passed (80 unit + 19 integration); Python worker architecture, PaddleOCR & Tesseract adapters, Migration 003, CER & WER benchmark verification, FTS5 OCR indexing & WPF badges | None — Awaiting approval for Phase 4 |
-| 4 — Visual search MVP | Not started | | Depends on Phase 3 |
+| 3 — OCR + Arabic/English | **Production Verified** | Actual PaddleOCR: **8/8 ground-truth scenarios** and **7/7 IPC checks** passed; Arabic CER 17.4% clean / 22.2% diacritics; English CER 0.0% clean / 2.9% low-res; cached CPU inference passed | English PP-OCRv5 candidate and full firewall-disconnect test remain unverified; Phase 4 not started |
+| 4 — Visual search MVP | **In progress — semantic integration checkpoint** | Migration 005, dedicated SigLIP2 provider/worker, provider/model filtering, local-only 768-dimensional IPC inference, normalization and release build pass | Corpus persistence/re-index mismatch tests, offline restart test, drag/resize region UI and labeled Precision/Recall benchmark remain |
 | 5 — Embedded assets + PSD | Not started | | Depends on Phase 4 |
 | 6 — Video frames | Not started | | Depends on Phase 5 |
 | 7 — Incremental monitoring + packaging | Not started | | Depends on Phase 6 |

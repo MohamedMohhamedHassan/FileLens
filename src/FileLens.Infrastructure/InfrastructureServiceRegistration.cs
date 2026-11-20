@@ -5,6 +5,7 @@ using FileLens.Infrastructure.FileSystem;
 using FileLens.Infrastructure.Text;
 using FileLens.Infrastructure.Extraction;
 using FileLens.Infrastructure.Ocr;
+using FileLens.Infrastructure.Visual;
 
 namespace FileLens.Infrastructure;
 
@@ -41,10 +42,19 @@ public static class InfrastructureServiceRegistration
         // Registry
         services.AddSingleton<IDocumentExtractionRegistry, DocumentExtractionRegistry>();
 
-        // Phase 3: OCR Engine & Service
+        // Phase 3: OCR Engine, Worker & Health Check
         services.AddSingleton<OcrWorkerClient>();
         services.AddSingleton<IOcrEngine, FallbackOcrEngine>();
         services.AddSingleton<IOcrService, LocalOcrService>();
+        services.AddSingleton<IAiWorkerHealthCheck, ProductionAiWorkerHealthCheckService>();
+
+        // Phase 4: semantic SigLIP worker and separate OpenCV feature provider.
+        services.AddSingleton<VisualWorkerClient>();
+        services.AddSingleton<SigLIP2VisualEmbeddingProvider>();
+        services.AddSingleton<LocalVisualEmbeddingProvider>();
+        services.AddSingleton<IImageEmbeddingProvider>(sp => sp.GetRequiredService<SigLIP2VisualEmbeddingProvider>());
+        services.AddSingleton<IVectorIndex, SqliteVectorIndex>();
+        services.AddSingleton<VisualIndexingService>();
 
         return services;
     }

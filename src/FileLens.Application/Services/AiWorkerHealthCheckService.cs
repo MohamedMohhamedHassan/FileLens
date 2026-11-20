@@ -4,9 +4,8 @@ using FileLens.Domain.Models;
 namespace FileLens.Application.Services;
 
 /// <summary>
-/// Stub implementation of <see cref="IAiWorkerHealthCheck"/> that always reports
-/// the Python worker as unavailable. This will be replaced when the Python AI
-/// worker is implemented in Phase 3-4.
+/// Stub implementation of <see cref="IAiWorkerHealthCheck"/> that reports
+/// the Python worker as unconfigured when running in pure offline fallback mode.
 /// </summary>
 public sealed class AiWorkerHealthCheckService : IAiWorkerHealthCheck
 {
@@ -22,4 +21,3 @@ public sealed class AiWorkerHealthCheckService : IAiWorkerHealthCheck
         return Task.FromResult(result);
     }
 }
-

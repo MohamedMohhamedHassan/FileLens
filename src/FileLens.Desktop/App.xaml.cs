@@ -35,7 +35,15 @@ public partial class App : System.Windows.Application
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "FileLens", "logs");
 
-        Directory.CreateDirectory(logDirectory);
+        try
+        {
+            Directory.CreateDirectory(logDirectory);
+        }
+        catch (Exception)
+        {
+            logDirectory = Path.Combine(Path.GetTempPath(), "FileLens", "logs");
+            Directory.CreateDirectory(logDirectory);
+        }
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
@@ -82,8 +90,10 @@ public partial class App : System.Windows.Application
             builder.AddSerilog(Log.Logger, dispose: false);
         });
 
+        // Infrastructure
+        services.AddInfrastructure();
+
         // Domain & Application services
-        services.AddSingleton<IAiWorkerHealthCheck, AiWorkerHealthCheckService>();
         services.AddSingleton<RootManagementService>();
         services.AddSingleton<IndexingJobEngine>();
         services.AddSingleton<IIndexingJobEngine>(sp => sp.GetRequiredService<IndexingJobEngine>());
@@ -91,9 +101,7 @@ public partial class App : System.Windows.Application
         services.AddSingleton<IDocumentExtractionEngine>(sp => sp.GetRequiredService<DocumentExtractionEngine>());
         services.AddSingleton<IOcrJobEngine, OcrJobEngine>();
         services.AddSingleton<ISearchService, SearchService>();
-
-        // Infrastructure
-        services.AddInfrastructure();
+        services.AddSingleton<VisualSearchViewModel>();
 
         // UI & ViewModels
         services.AddSingleton<MainViewModel>();

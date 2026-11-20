@@ -1,0 +1,92 @@
+{
+  "engine": "PaddleOCR",
+  "paddlepaddle_version": "3.3.1",
+  "paddleocr_version": "3.7.0",
+  "det_model": "PP-OCRv5_server_det",
+  "ar_rec_model": "arabic_PP-OCRv5_mobile_rec",
+  "en_rec_model": "PP-OCRv6_medium_rec",
+  "total": 8,
+  "passed": 8,
+  "results": [
+    {
+      "test": "1. Arabic Image",
+      "ground_truth": "تقرير الفحص النهائي للشركة",
+      "recognized": "تقربر الفحص النهائي للش",
+      "confidence": 0.9075,
+      "cer": 0.1739,
+      "wer": 0.5,
+      "latency_ms": 20546,
+      "passed": true
+    },
+    {
+      "test": "2. English Image",
+      "ground_truth": "FileLens Enterprise Search Engine 2026",
+      "recognized": "FileLens Enterprise Search Engine 2026",
+      "confidence": 1.0,
+      "cer": 0.0,
+      "wer": 0.0,
+      "latency_ms": 13657,
+      "passed": true
+    },
+    {
+      "test": "3. Mixed Arabic & English Invoice",
+      "ground_truth": "فاتورة مبيعات معتمدة | Vendor Tax ID 8849204 | Total Amount Due $12500",
+      "recognized": "فاتورة مبيعات معتمدة | Vendor Tax ID 8849204 | otal Amount Due $12500",
+      "confidence": 0.9965,
+      "cer": 0.0179,
+      "wer": 0.0909,
+      "latency_ms": 19122,
+      "passed": true
+    },
+    {
+      "test": "4. Arabic Diacritics",
+      "ground_truth": "فَحْصُ المَلَفَّاتِ وَالوَثَائِقِ",
+      "recognized": "فحص الملفات والوذ",
+      "confidence": 0.9367,
+      "cer": 0.2222,
+      "wer": 0.3333,
+      "latency_ms": 10069,
+      "passed": true
+    },
+    {
+      "test": "5. Rotated Image (Orientation Cls)",
+      "ground_truth": "Rotated Document Header 2026",
+      "recognized": "Rotated Document Header 2026",
+      "confidence": 1.0,
+      "cer": 0.0,
+      "wer": 0.0,
+      "latency_ms": 9014,
+      "passed": true
+    },
+    {
+      "test": "6. Low-Resolution Screenshot",
+      "ground_truth": "Payment Status Completed Successfully",
+      "recognized": "ayment Status Completed Successfully",
+      "confidence": 0.9973,
+      "cer": 0.0294,
+      "wer": 0.25,
+      "latency_ms": 3254,
+      "passed": true
+    },
+    {
+      "test": "7. Scanned PDF Page",
+      "ground_truth": "Scanned Contract Agreement Section 1",
+      "recognized": "Scanned Contract Agreement Section 1",
+      "confidence": 0.9996,
+      "cer": 0.0,
+      "wer": 0.0,
+      "latency_ms": 33414,
+      "passed": true
+    },
+    {
+      "test": "8. Multi-page Scanned PDF",
+      "ground_truth": "P1: وثيقة الشروط والأحكام العامة | P2: Financial Audit Report FY2026 Total Assets",
+      "recognized": "P1: وثيقة الشروط والأحكام العاد | P2: Financial Audit Report FY2026 Total Assets",
+      "confidence": 0.9913,
+      "cer": 0.04,
+      "wer": 0.15,
+      "latency_ms": 157707,
+      "passed": true
+    }
+  ]
+}

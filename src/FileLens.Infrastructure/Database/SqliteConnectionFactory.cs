@@ -20,7 +20,16 @@ public sealed class SqliteConnectionFactory
                 "FileLens", "cache");
         }
 
-        Directory.CreateDirectory(baseDir);
+        try
+        {
+            Directory.CreateDirectory(baseDir);
+        }
+        catch (Exception)
+        {
+            baseDir = Path.Combine(Path.GetTempPath(), "FileLens", "cache");
+            Directory.CreateDirectory(baseDir);
+        }
+
         string dbPath = Path.Combine(baseDir, "filelens_index.db");
 
         var builder = new SqliteConnectionStringBuilder
